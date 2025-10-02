@@ -1,9 +1,3 @@
--- Default and user-provided settings for opencode.nvim
-
---- @class OpencodeConfigModule
---- @field defaults OpencodeConfig
---- @field values OpencodeConfig
---- @field setup fun(opts?: OpencodeConfig): nil
 --- @field get fun(key: nil): OpencodeConfig
 --- @field get fun(key: "preferred_picker"): 'mini.pick' | 'telescope' | 'fzf' | 'snacks' | nil
 --- @field get fun(key: "preferred_completion"): 'blink' | 'nvim-cmp' | 'vim_complete' | nil
@@ -167,8 +161,8 @@ M.defaults = {
     },
     recent_buffers = {
       enabled = true,
-      limit = 3,
       symbols_only = true,
+      limit = 3,
     },
     undo_history = {
       enabled = true,
