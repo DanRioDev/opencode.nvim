@@ -86,13 +86,7 @@
 ---@field next_prompt_history string
 ---@field switch_mode string
 ---@field focus_input string
----@field select_child_session string
----@field debug_message string
----@field debug_output string
----@field debug_session string
----@field debug_message string
----@field debug_output string
----@field debug_session string
+---@field select_child_session string\n---@field debug_message string\n---@field debug_output string\n---@field debug_session string
 ---@class OpencodeKeymap
 ---@field global OpencodeKeymapGlobal
 ---@field window OpencodeKeymapWindow
@@ -128,7 +122,6 @@
 
 ---@class OpencodeContextConfig
 ---@field enabled boolean
----@field plugin_versions { enabled: boolean, limit: number }
 ---@field plugin_versions { enabled: boolean, limit: number }
 ---@field cursor_data { enabled: boolean }
 ---@field diagnostics { info: boolean, warning: boolean, error: boolean }
