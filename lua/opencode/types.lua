@@ -79,7 +79,10 @@
 ---@field next_prompt_history string
 ---@field switch_mode string
 ---@field focus_input string
----@field select_child_session string\n---@field debug_message string\n---@field debug_output string\n---@field debug_session string
+---@field select_child_session string
+---@field debug_message string
+---@field debug_output string
+---@field debug_session string
 ---@class OpencodeKeymap
 ---@field global OpencodeKeymapGlobal
 ---@field window OpencodeKeymapWindow
@@ -98,8 +101,9 @@
 ---@class OpencodeUIConfig
 ---@field position 'right'|'left' # Position of the UI (default: 'right')
 ---@field input_position 'bottom'|'top' # Position of the input window (default: 'bottom')
----@field window_width number
+---@field window_width number # Width as fraction (0-1) or absolute columns (>1)
 ---@field input_height number
+---@field winfixwidth boolean # Whether to fix window width (default: false)
 ---@field display_model boolean
 ---@field display_context_size boolean
 ---@field display_cost boolean

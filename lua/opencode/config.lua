@@ -75,6 +75,7 @@ M.defaults = {
     input_position = 'bottom',
     window_width = 0.40,
     input_height = 0.15,
+    winfixwidth = false,
     display_model = true,
     display_context_size = true,
     display_cost = true,

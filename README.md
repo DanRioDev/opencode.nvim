@@ -144,7 +144,8 @@ require('opencode').setup({
   ui = {
     position = 'right', -- 'right' (default) or 'left'. Position of the UI split
     input_position = 'bottom', -- 'bottom' (default) or 'top'. Position of the input window
-    window_width = 0.40, -- Width as percentage of editor width
+    window_width = 0.40, -- Width as fraction (0-1) or absolute columns
+    winfixwidth = false, -- Whether to fix window width (prevents auto-resizing)
     input_height = 0.15, -- Input height as percentage of window height
     display_model = true, -- Display model name on top winbar
     display_context_size = true, -- Display context size in the footer

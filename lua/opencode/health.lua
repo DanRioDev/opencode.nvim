@@ -123,10 +123,10 @@ local function check_configuration()
     health.ok(string.format('UI position: %s', values.ui.position))
   end
 
-  if values.ui.window_width <= 0 or values.ui.window_width > 1 then
+  if values.ui.window_width <= 0 then
     health.warn(
       string.format('Invalid window width: %s', values.ui.window_width),
-      { 'Window width should be between 0 and 1 (percentage of screen)' }
+      { 'Window width should be > 0 (fraction 0-1 or absolute columns)' }
     )
   else
     health.ok(string.format('Window width: %s', values.ui.window_width))
