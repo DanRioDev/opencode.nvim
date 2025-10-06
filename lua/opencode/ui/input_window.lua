@@ -16,6 +16,7 @@ function M._build_input_win_config()
     col = 2,
     style = 'minimal',
     zindex = 41,
+    winfixwidth = config.ui.winfixwidth,
   }
 end
 
@@ -88,7 +89,12 @@ function M.update_dimensions(windows)
 
   local total_width = vim.api.nvim_get_option_value('columns', {})
   local total_height = vim.api.nvim_get_option_value('lines', {})
-  local width = math.floor(total_width * config.ui.window_width)
+  local width
+  if config.ui.window_width <= 1 then
+    width = math.floor(total_width * config.ui.window_width)
+  else
+    width = math.min(config.ui.window_width, total_width)
+  end
   local height = math.floor(total_height * config.ui.input_height)
 
   vim.api.nvim_win_set_config(windows.input_win, { width = width, height = height })

@@ -18,6 +18,7 @@ function M._build_output_win_config()
     style = 'minimal',
     border = 'rounded',
     zindex = 40,
+    winfixwidth = config.ui.winfixwidth,
   }
 end
 
@@ -61,7 +62,12 @@ end
 
 function M.update_dimensions(windows)
   local total_width = vim.api.nvim_get_option_value('columns', {})
-  local width = math.floor(total_width * config.ui.window_width)
+  local width
+  if config.ui.window_width <= 1 then
+    width = math.floor(total_width * config.ui.window_width)
+  else
+    width = math.min(config.ui.window_width, total_width)
+  end
 
   vim.api.nvim_win_set_config(windows.output_win, { width = width })
 end
