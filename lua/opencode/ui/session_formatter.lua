@@ -359,6 +359,7 @@ end
 ---@param title? string Optional title for the callout
 function M._format_callout(callout, text, title)
   title = title and title .. ' ' or ''
+  local config = require('opencode.config').get()
   local win_width = (state.windows and state.windows.output_win and vim.api.nvim_win_is_valid(state.windows.output_win))
       and vim.api.nvim_win_get_width(state.windows.output_win)
     or config.ui.window_width

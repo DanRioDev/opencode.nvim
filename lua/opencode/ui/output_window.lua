@@ -10,6 +10,7 @@ function M.create_buf()
 end
 
 function M._build_output_win_config()
+  local config = require('opencode.config').get()
   return {
     relative = 'editor',
     width = config.ui.window_width or 80,
@@ -40,6 +41,7 @@ function M.mounted(windows)
 end
 
 function M.setup(windows)
+  local config = require('opencode.config').get()
   vim.api.nvim_set_option_value('winhighlight', config.ui.window_highlight, { win = windows.output_win })
   vim.api.nvim_set_option_value('wrap', true, { win = windows.output_win })
   vim.api.nvim_set_option_value('number', false, { win = windows.output_win })
@@ -60,6 +62,7 @@ function M.setup(windows)
 end
 
 function M.update_dimensions(windows)
+  local config = require('opencode.config').get()
   local total_width = vim.api.nvim_get_option_value('columns', {})
   local width = math.floor(total_width * config.ui.window_width)
 

@@ -6,7 +6,7 @@ local M = {}
 
 M._animation = {
   frames = nil,
-  text = 'Thinking... ',
+  text = ' thinking',
   current_frame = 1,
   timer = nil,
   fps = 10,
@@ -40,7 +40,7 @@ M.render = vim.schedule_wrap(function(windows)
     return false
   end
 
-  local loading_text = M._animation.text .. M._get_frames()[M._animation.current_frame]
+  local loading_text = M._get_frames()[M._animation.current_frame] .. M._animation.text
 
   M._animation.extmark_id = vim.api.nvim_buf_set_extmark(windows.footer_buf, M._animation.ns_id, 0, 0, {
     id = M._animation.extmark_id or nil,

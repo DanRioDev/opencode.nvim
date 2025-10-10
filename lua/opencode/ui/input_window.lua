@@ -9,9 +9,10 @@ function M.create_buf()
 end
 
 function M._build_input_win_config()
+  local config = require('opencode.config').get()
   return {
     relative = 'editor',
-    width = config.ui.window_width or 80,
+    width = math.floor(vim.api.nvim_get_option_value('columns', {}) * config.ui.window_width),
     height = 3,
     col = 2,
     style = 'minimal',
@@ -87,6 +88,7 @@ M._execute_slash_command = function(command)
 end
 
 function M.setup(windows)
+  local config = require('opencode.config').get()
   vim.api.nvim_set_option_value('winhighlight', config.ui.window_highlight, { win = windows.input_win })
   vim.api.nvim_set_option_value('wrap', config.ui.input.text.wrap, { win = windows.input_win })
   vim.api.nvim_set_option_value('signcolumn', 'yes', { win = windows.input_win })
@@ -111,6 +113,7 @@ function M.update_dimensions(windows)
     return
   end
 
+  local config = require('opencode.config').get()
   local total_width = vim.api.nvim_get_option_value('columns', {})
   local total_height = vim.api.nvim_get_option_value('lines', {})
   local width = math.floor(total_width * config.ui.window_width)

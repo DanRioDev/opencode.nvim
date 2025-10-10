@@ -177,7 +177,7 @@ M.defaults = {
       limit = 20,
     },
     cursor_data = {
-      enabled = false,
+      enabled = true,
     },
     diagnostics = {
       info = false,
@@ -267,6 +267,11 @@ M.defaults = {
     },
     session_duration = {
       enabled = false,
+    },
+    vectorcode_snippets = {
+      enabled = true,
+      n = 3,
+      query_strategy = 'auto', -- 'auto', 'selection', 'line', 'filename'
     },
   },
   debug = {

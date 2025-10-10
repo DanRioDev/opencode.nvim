@@ -228,6 +228,12 @@ end
 
 function M.setup()
   local OpencodeApiClient = require('opencode.api_client')
+
+  -- Add this block to ensure the server is running
+  if not state.opencode_server_job or not state.opencode_server_job:is_running() then
+    state.opencode_server_job = server_job.ensure_server() --[[@as OpencodeServer]]
+  end
+
   state.api_client = OpencodeApiClient.new()
 end
 

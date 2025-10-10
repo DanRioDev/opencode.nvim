@@ -75,6 +75,34 @@ local function contains_secret(content)
   return false
 end
 
+-- Helper function to get surrounding lines for a specific buffer and line
+---@param bufnr number
+---@param line_num number
+---@return table|nil
+local function get_surrounding_lines(bufnr, line_num)
+  if not vim.api.nvim_buf_is_valid(bufnr) then
+    return nil
+  end
+
+  local lines_above = config.context.cursor_surrounding.lines_above or 3
+  local lines_below = config.context.cursor_surrounding.lines_below or 3
+
+  local start_line = math.max(1, line_num - lines_above)
+  local end_line = math.min(vim.api.nvim_buf_line_count(bufnr), line_num + lines_below)
+
+  local ok, lines = pcall(vim.api.nvim_buf_get_lines, bufnr, start_line - 1, end_line, false)
+  if not ok then
+    return nil
+  end
+
+  return {
+    lines = lines,
+    start_line = start_line,
+    end_line = end_line,
+    current_line = line_num,
+  }
+end
+
 M.context = {
   -- current file
   current_file = nil,
@@ -86,6 +114,7 @@ M.context = {
   selections = nil,
   linter_errors = nil,
   mentioned_subagents = nil,
+  vectorcode_snippets = nil,
 
   -- new context types
   marks = nil,
@@ -119,7 +148,16 @@ local function get_cache_ttl(key, default)
   if cfg.context and cfg.context.cache_ttl and cfg.context.cache_ttl[key] then
     return cfg.context.cache_ttl[key]
   end
-  return default or context_cache.DEFAULT_TTL
+  -- Longer defaults for expensive operations to reduce recomputation
+  local heavy_ttls = {
+    git_info = 10000, -- 10 seconds
+    lsp_context = 5000, -- 5 seconds
+    plugin_versions = 60000, -- 1 minute
+    vectorcode_snippets = 30000, -- 30 seconds
+    recent_buffers = 5000, -- 5 seconds
+    highlights = 5000, -- 5 seconds
+  }
+  return heavy_ttls[key] or default or context_cache.DEFAULT_TTL
 end
 
 function M.unload_attachments()
@@ -147,6 +185,7 @@ function M.unload_attachments()
   M.context.macros = nil
   M.context.terminal_buffers = nil
   M.context.session_duration = nil
+  M.context.vectorcode_snippets = nil
 end
 
 function M.load()
@@ -174,30 +213,42 @@ function M.load()
     M.add_selection(selection)
   end
 
-  -- Load new context types
+  -- Load lightweight context types immediately
   M.context.marks = M.get_marks()
   M.context.jumplist = M.get_jumplist()
-  M.context.recent_buffers = M.get_recent_buffers()
   M.context.undo_history = M.get_undo_history()
   M.context.windows_tabs = M.get_windows_tabs()
-  M.context.highlights = M.get_highlights()
   M.context.session_info = M.get_session_info()
   M.context.registers = M.get_registers()
   M.context.command_history = M.get_command_history()
   M.context.search_history = M.get_search_history()
   M.context.debug_data = M.get_debug_data()
-  M.context.lsp_context = M.get_lsp_context()
-  M.context.plugin_versions = M.get_plugin_versions()
-  M.context.git_info = M.get_git_info()
   M.context.fold_info = M.get_fold_info()
   M.context.cursor_surrounding = M.get_cursor_surrounding()
   M.context.quickfix_loclist = M.get_quickfix_loclist()
   M.context.macros = M.get_macros()
   M.context.terminal_buffers = M.get_terminal_buffers()
   M.context.session_duration = M.get_session_duration()
-  cache.timestamp = now
-  cache.data = vim.deepcopy(M.context)
-  cache.last_changedtick = current_changedtick
+
+  -- Defer heavy context types to prevent UI freeze
+  vim.defer_fn(function()
+    M.get_recent_buffers(function(result)
+      M.context.recent_buffers = result
+    end)
+    M.context.highlights = M.get_highlights() -- Keep sync, as it's fast with cache
+    M.get_lsp_context(function(result)
+      M.context.lsp_context = result
+    end)
+    M.get_plugin_versions(function(result)
+      M.context.plugin_versions = result
+    end)
+    M.get_git_info(function(result)
+      M.context.git_info = result
+    end)
+    M.get_vectorcode_snippets(function(result)
+      M.context.vectorcode_snippets = result
+    end)
+  end, 0)
 end
 
 function M.check_linter_errors()
@@ -885,97 +936,101 @@ function M.get_lsp_context()
     or nil
 end
 
--- Get Git information
-function M.get_git_info()
+-- Get Git information (async)
+---@param callback function(result: table|nil)
+function M.get_git_info(callback)
   if
     not (config.context and config.context.enabled and config.context.git_info and config.context.git_info.enabled)
   then
-    return nil
+    callback(nil)
+    return
   end
 
-  -- Check cache first (5 second TTL for git info)
+  -- Check cache first
   local cache_key = 'git_info'
   local cached = context_cache.get(cache_key, get_cache_ttl('git_info', 5000))
   if cached then
-    return cached
+    callback(cached)
+    return
   end
 
-  local result = {}
+  -- Run git commands in parallel using context_cache.parallel
+  local tasks = {
+    { name = 'branch', cmd = { 'git', 'rev-parse', '--abbrev-ref', 'HEAD' } },
+    { name = 'sha', cmd = { 'git', 'rev-parse', '--short', 'HEAD' } },
+    { name = 'status', cmd = { 'git', 'status', '--porcelain' } },
+    { name = 'log', cmd = { 'git', 'log', '--oneline', '-n', tostring(config.context.git_info.changes_limit or 5) } },
+  }
 
-  -- Get current branch
-  local branch_ok, branch = pcall(vim.fn.systemlist, 'git rev-parse --abbrev-ref HEAD 2>/dev/null')
-  if branch_ok and branch[1] and branch[1] ~= '' then
-    result.branch = branch[1]
-  else
-    return nil
-  end
-
-  -- Get HEAD commit SHA (short form)
-  local sha_ok, sha = pcall(vim.fn.systemlist, 'git rev-parse --short HEAD 2>/dev/null')
-  if sha_ok and sha[1] and sha[1] ~= '' then
-    result.head_sha = sha[1]
-  end
-
-  -- Check if working tree is dirty
-  local status_ok, status = pcall(vim.fn.systemlist, 'git status --porcelain 2>/dev/null')
-  if status_ok and status then
-    result.is_dirty = #status > 0
-
-    -- Count staged and unstaged changes
-    local staged_count = 0
-    local unstaged_count = 0
-    for _, line in ipairs(status) do
-      if line and line ~= '' then
-        local index_status = line:sub(1, 1)
-        local work_status = line:sub(2, 2)
-
-        -- Staged changes (index column not space or ?)
-        if index_status ~= ' ' and index_status ~= '?' then
-          staged_count = staged_count + 1
-        end
-
-        -- Unstaged changes (work tree column not space)
-        if work_status ~= ' ' then
-          unstaged_count = unstaged_count + 1
-        end
-      end
-    end
-
-    if staged_count > 0 then
-      result.staged_changes = staged_count
-    end
-    if unstaged_count > 0 then
-      result.unstaged_changes = unstaged_count
-    end
-  end
-
-  -- Get file diff
+  -- Add file diff if applicable
   local current_file = vim.fn.expand('%:p')
   if current_file and current_file ~= '' and is_in_cwd(current_file) then
-    local diff_limit = config.context.git_info.diff_limit or 10
-    local diff_ok, diff = pcall(vim.fn.systemlist, string.format('git diff HEAD -- %s 2>/dev/null', current_file))
-    if diff_ok and diff then
-      result.file_diff = {}
-      for i = 1, math.min(#diff, diff_limit) do
-        table.insert(result.file_diff, diff[i])
+    table.insert(tasks, {
+      name = 'diff',
+      cmd = { 'git', 'diff', 'HEAD', '--', current_file },
+    })
+  end
+
+  context_cache.parallel(tasks, function(results)
+    if not results.branch or results.branch == '' then
+      callback(nil)
+      return
+    end
+
+    local result = {
+      branch = results.branch,
+      head_sha = results.sha,
+      is_dirty = results.status and #vim.split(results.status, '\n', { plain = true }) > 0,
+    }
+
+    -- Parse status for staged/unstaged counts
+    if results.status then
+      local staged_count = 0
+      local unstaged_count = 0
+      for line in results.status:gmatch('[^\n]+') do
+        if line ~= '' then
+          local index_status = line:sub(1, 1)
+          local work_status = line:sub(2, 2)
+          if index_status ~= ' ' and index_status ~= '?' then
+            staged_count = staged_count + 1
+          end
+          if work_status ~= ' ' then
+            unstaged_count = unstaged_count + 1
+          end
+        end
+      end
+      if staged_count > 0 then
+        result.staged_changes = staged_count
+      end
+      if unstaged_count > 0 then
+        result.unstaged_changes = unstaged_count
       end
     end
-  end
 
-  -- Get recent changes
-  local changes_limit = config.context.git_info.changes_limit or 5
-  local log_ok, log = pcall(vim.fn.systemlist, string.format('git log --oneline -n %d 2>/dev/null', changes_limit))
-  if log_ok and log then
-    result.recent_changes = log
-  end
+    -- Parse diff
+    if results.diff then
+      local diff_limit = config.context.git_info.diff_limit or 10
+      result.file_diff = {}
+      local lines = vim.split(results.diff, '\n', { plain = true })
+      for i = 1, math.min(#lines, diff_limit) do
+        table.insert(result.file_diff, lines[i])
+      end
+    end
 
-  -- Cache the result
-  context_cache.set(cache_key, result)
-  return result
+    -- Parse log
+    if results.log then
+      result.recent_changes = vim.split(results.log, '\n', { plain = true })
+    end
+
+    -- Cache and callback
+    context_cache.set(cache_key, result)
+    callback(result)
+  end, { timeout = 5000 })
 end
 
--- Get plugin versions from lazy-lock.json
-function M.get_plugin_versions()
+-- Get plugin versions from lazy-lock.json (async)
+---@param callback function(result: table|nil)
+function M.get_plugin_versions(callback)
   if
     not (
       config.context
@@ -984,12 +1039,14 @@ function M.get_plugin_versions()
       and config.context.plugin_versions.enabled
     )
   then
-    return nil
+    callback(nil)
+    return
   end
 
   local lock_path = vim.fn.stdpath('data') .. '/lazy/lazy-lock.json'
   if vim.fn.filereadable(lock_path) ~= 1 then
-    return nil
+    callback(nil)
+    return
   end
 
   -- Check cache first with file modification time
@@ -1001,41 +1058,47 @@ function M.get_plugin_versions()
   local cache_key_with_mtime = cache_key .. '_' .. lock_mtime
   local cached = context_cache.get(cache_key_with_mtime, get_cache_ttl('plugin_versions', 60000))
   if cached then
-    return cached
+    callback(cached)
+    return
   end
 
   -- Clear old cache entries for this section
   context_cache.clear(cache_key)
 
-  local ok, content = pcall(vim.fn.readfile, lock_path)
-  if not ok then
-    return nil
-  end
-
-  local ok_decode, data = pcall(vim.json.decode, table.concat(content, '\n'))
-  if not ok_decode or type(data) ~= 'table' or not data.packages then
-    return nil
-  end
-
-  local result = {}
-  local limit = config.context.plugin_versions.limit or 20
-  local count = 0
-
-  for name, info in pairs(data.packages) do
-    if count >= limit then
-      break
+  -- Read file asynchronously
+  vim.defer_fn(function()
+    local ok, content = pcall(vim.fn.readfile, lock_path)
+    if not ok then
+      callback(nil)
+      return
     end
-    table.insert(result, {
-      name = name,
-      version = info.version or 'unknown',
-      commit = info.commit and string.sub(info.commit, 1, 8) or 'none',
-    })
-    count = count + 1
-  end
 
-  local final_result = #result > 0 and result or nil
-  context_cache.set(cache_key_with_mtime, final_result)
-  return final_result
+    local ok_decode, data = pcall(vim.json.decode, table.concat(content, '\n'))
+    if not ok_decode or type(data) ~= 'table' or not data.packages then
+      callback(nil)
+      return
+    end
+
+    local result = {}
+    local limit = config.context.plugin_versions.limit or 20
+    local count = 0
+
+    for name, info in pairs(data.packages) do
+      if count >= limit then
+        break
+      end
+      table.insert(result, {
+        name = name,
+        version = info.version or 'unknown',
+        commit = info.commit and string.sub(info.commit, 1, 8) or 'none',
+      })
+      count = count + 1
+    end
+
+    local final_result = #result > 0 and result or nil
+    context_cache.set(cache_key_with_mtime, final_result)
+    callback(final_result)
+  end, 0)
 end
 
 -- Get fold information
@@ -1225,6 +1288,116 @@ function M.get_session_duration()
     duration_minutes = math.floor(duration_seconds / 60),
     duration_hours = math.floor(duration_seconds / 3600),
   }
+end
+
+-- Get VectorCode snippets (async)
+---@param callback function(result: table|nil)
+function M.get_vectorcode_snippets(callback)
+  if
+    not (
+      config.context
+      and config.context.enabled
+      and config.context.vectorcode_snippets
+      and config.context.vectorcode_snippets.enabled
+    )
+  then
+    callback(nil)
+    return
+  end
+
+  -- Check if VectorCode is available
+  local ok, vectorcode = pcall(require, 'vectorcode')
+  if not ok then
+    callback(nil)
+    return
+  end
+
+  -- Get current file and cursor data for better query
+  local current_file = M.get_current_file()
+  local cursor_data = M.get_current_cursor_data()
+  local current_selection = M.get_current_selection()
+
+  if not current_file or not current_file.path then
+    callback(nil)
+    return
+  end
+
+  -- Build a more relevant query based on context
+  local query_strategy = config.context.vectorcode_snippets.query_strategy or 'auto'
+  local query_parts = {}
+
+  if
+    query_strategy == 'selection'
+    and current_selection
+    and current_selection.text
+    and current_selection.text:match('%S')
+  then
+    table.insert(query_parts, current_selection.text)
+  elseif
+    query_strategy == 'line'
+    and cursor_data
+    and cursor_data.line_content
+    and cursor_data.line_content:match('%S')
+  then
+    table.insert(query_parts, cursor_data.line_content)
+  elseif query_strategy == 'filename' then
+    table.insert(query_parts, vim.fn.fnamemodify(current_file.path, ':t'))
+    if current_file.filetype then
+      table.insert(query_parts, current_file.filetype)
+    end
+  else -- 'auto' or fallback
+    -- Use current selection if available (most specific)
+    if current_selection and current_selection.text and current_selection.text:match('%S') then
+      table.insert(query_parts, current_selection.text)
+    elseif cursor_data and cursor_data.line_content and cursor_data.line_content:match('%S') then
+      -- Use current line content
+      table.insert(query_parts, cursor_data.line_content)
+    else
+      -- Fallback to filename + filetype
+      table.insert(query_parts, vim.fn.fnamemodify(current_file.path, ':t'))
+      if current_file.filetype then
+        table.insert(query_parts, current_file.filetype)
+      end
+    end
+  end
+
+  -- Add filetype for better context if not already included and strategy allows
+  if
+    current_file.filetype
+    and query_strategy ~= 'selection'
+    and not vim.tbl_contains(query_parts, current_file.filetype)
+  then
+    table.insert(query_parts, current_file.filetype)
+  end
+
+  local query = table.concat(query_parts, ' ')
+  local n = config.context.vectorcode_snippets.n or 3
+
+  -- Ensure query is not empty and not too long
+  if query == '' or #query > 500 then
+    callback(nil)
+    return
+  end
+
+  -- Query VectorCode asynchronously
+  vim.defer_fn(function()
+    local ok_query, results = pcall(vectorcode.query, query, { n = n })
+    if not ok_query or not results then
+      callback(nil)
+      return
+    end
+
+    -- Format results
+    local snippets = {}
+    for _, result in ipairs(results) do
+      table.insert(snippets, {
+        path = result.path,
+        content = result.document,
+      })
+    end
+
+    callback(#snippets > 0 and snippets or nil)
+  end, 0)
 end
 
 local function format_file_part(path, prompt)
@@ -1423,6 +1596,10 @@ function M.format_message(prompt, opts)
     table.insert(parts, format_context_part('session_duration', context.session_duration))
   end
 
+  if context.vectorcode_snippets then
+    table.insert(parts, format_context_part('vectorcode_snippets', context.vectorcode_snippets))
+  end
+
   return parts
 end
 
@@ -1597,6 +1774,11 @@ end
 ---@param opts? { enabled: boolean, symbols_only: boolean, max: number }
 ---@return OpencodeMessagePart[]|table[]|nil
 function M.get_recent_buffers(prompt, opts)
+  -- New API: called with prompt and opts
+  if not opts or not opts.enabled then
+    return nil
+  end
+
   -- Legacy API: called with no arguments, uses config.context.recent_buffers
   if prompt == nil and opts == nil then
     if
@@ -1619,6 +1801,7 @@ function M.get_recent_buffers(prompt, opts)
     end)
 
     local result = {}
+    local current_bufnr = vim.fn.bufnr()
     for i = 1, math.min(#buffers, limit) do
       local buf = buffers[i]
       local buf_entry = {
@@ -1642,6 +1825,12 @@ function M.get_recent_buffers(prompt, opts)
           for _, client in ipairs(clients) do
             table.insert(buf_entry.lsp_clients, client.name)
           end
+        end
+
+        -- Add cursor_surrounding if this is the current buffer
+        if buf.bufnr == current_bufnr then
+          local current_line = vim.fn.line('.')
+          buf_entry.cursor_surrounding = get_surrounding_lines(buf.bufnr, current_line)
         end
       end
 
@@ -1716,11 +1905,6 @@ function M.get_recent_buffers(prompt, opts)
     end
 
     return #result > 0 and result or nil
-  end
-
-  -- New API: called with prompt and opts
-  if not opts or not opts.enabled then
-    return nil
   end
 
   local bufs = vim.api.nvim_list_bufs()

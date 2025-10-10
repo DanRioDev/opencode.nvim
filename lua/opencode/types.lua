@@ -78,7 +78,7 @@
 ---@field next_prompt_history string
 ---@field switch_mode string
 ---@field focus_input string
----@field select_child_session string\n---@field debug_message string\n---@field debug_output string\n---@field debug_session string
+---@field select_child_session string
 ---@field debug_message string
 ---@field debug_output string
 ---@field debug_session string
