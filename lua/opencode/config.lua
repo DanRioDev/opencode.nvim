@@ -1,9 +1,3 @@
--- Default and user-provided settings for opencode.nvim
-
---- @class OpencodeConfigModule
---- @field defaults OpencodeConfig
---- @field values OpencodeConfig
---- @field setup fun(opts?: OpencodeConfig): nil
 --- @field get fun(key: nil): OpencodeConfig
 --- @field get fun(key: "preferred_picker"): 'mini.pick' | 'telescope' | 'fzf' | 'snacks' | nil
 --- @field get fun(key: "preferred_completion"): 'blink' | 'nvim-cmp' | 'vim_complete' | nil
@@ -75,6 +69,7 @@ M.defaults = {
     input_position = 'bottom',
     window_width = 0.40,
     input_height = 0.15,
+    winfixwidth = false,
     display_model = true,
     display_context_size = true,
     display_cost = true,
@@ -82,6 +77,9 @@ M.defaults = {
     icons = {
       preset = 'nerdfonts',
       overrides = {},
+    },
+    loading_animation = {
+      frames = { '·', '․', '•', '∙', '●', '⬤', '●', '∙', '•', '․' },
     },
     output = {
       tools = {
@@ -175,8 +173,8 @@ M.defaults = {
     },
     recent_buffers = {
       enabled = true,
-      limit = 3,
       symbols_only = true,
+      limit = 3,
     },
     undo_history = {
       enabled = true,

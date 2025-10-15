@@ -18,6 +18,7 @@ function M._build_output_win_config()
     style = 'minimal',
     border = 'rounded',
     zindex = 40,
+    winfixwidth = config.ui.winfixwidth,
   }
 end
 
@@ -27,7 +28,12 @@ end
 
 function M.mounted(windows)
   windows = windows or state.windows
-  if not state.windows or not state.windows.output_buf or not state.windows.output_win then
+  if
+    not state.windows
+    or not state.windows.output_buf
+    or not state.windows.output_win
+    or not vim.api.nvim_win_is_valid(windows.output_win)
+  then
     return false
   end
 
@@ -56,7 +62,12 @@ end
 
 function M.update_dimensions(windows)
   local total_width = vim.api.nvim_get_option_value('columns', {})
-  local width = math.floor(total_width * config.ui.window_width)
+  local width
+  if config.ui.window_width <= 1 then
+    width = math.floor(total_width * config.ui.window_width)
+  else
+    width = math.min(config.ui.window_width, total_width)
+  end
 
   vim.api.nvim_win_set_config(windows.output_win, { width = width })
 end
@@ -134,9 +145,15 @@ function M.setup_keymaps(windows)
 
   if config.debug.enabled then
     local debug_helper = require('opencode.ui.debug_helper')
-    map(keymaps.debug_output, debug_helper.debug_output, output_buf, 'n')
-    map(keymaps.debug_message, debug_helper.debug_message, output_buf, 'n')
-    map(keymaps.debug_session, debug_helper.debug_session, output_buf, 'n')
+    if debug_helper.debug_output then
+      map(keymaps.debug_output, debug_helper.debug_output, output_buf, 'n')
+    end
+    if debug_helper.debug_message then
+      map(keymaps.debug_message, debug_helper.debug_message, output_buf, 'n')
+    end
+    if debug_helper.debug_session then
+      map(keymaps.debug_session, debug_helper.debug_session, output_buf, 'n')
+    end
   end
 end
 
@@ -147,7 +164,7 @@ function M.setup_autocmds(windows, group)
     callback = function()
       vim.cmd('stopinsert')
       state.last_focused_opencode_window = 'output'
-      require('opencode.ui.input_window').refresh_placeholder(windows)
+      require('opencode.ui.input_window').refresh_placeholder(state.windows)
     end,
   })
 
@@ -157,7 +174,7 @@ function M.setup_autocmds(windows, group)
     callback = function()
       vim.cmd('stopinsert')
       state.last_focused_opencode_window = 'output'
-      require('opencode.ui.input_window').refresh_placeholder(windows)
+      require('opencode.ui.input_window').refresh_placeholder(state.windows)
     end,
   })
 end

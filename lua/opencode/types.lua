@@ -17,10 +17,17 @@
 ---@field vcs string
 ---@field time { created: number }
 
----@class OpencodeUserCommandFrontMatter
+---@class OpencodePath
+---@field state string
+---@field config string
+---@field worktree string
+---@field directory string
+
+---@class OpencodeCommand
 ---@field description string
 ---@field agent string
 ---@field model string
+---@field template string
 
 ---@class SessionRevertInfo
 ---@field messageID string
@@ -32,7 +39,7 @@
 ---@field workspace string
 ---@field description string
 ---@field modified number
----@field name string
+---@field id string
 ---@field parentID string|nil
 ---@field path string
 ---@field messages_path string
@@ -79,7 +86,10 @@
 ---@field next_prompt_history string
 ---@field switch_mode string
 ---@field focus_input string
----@field select_child_session string\n---@field debug_message string\n---@field debug_output string\n---@field debug_session string
+---@field select_child_session string
+---@field debug_message string
+---@field debug_output string
+---@field debug_session string
 ---@class OpencodeKeymap
 ---@field global OpencodeKeymapGlobal
 ---@field window OpencodeKeymapWindow
@@ -95,16 +105,21 @@
 ---@class OpencodeCompletionConfig
 ---@field file_sources OpencodeCompletionFileSourcesConfig
 
+---@class OpencodeLoadingAnimationConfig
+---@field frames string[]
+
 ---@class OpencodeUIConfig
 ---@field position 'right'|'left' # Position of the UI (default: 'right')
 ---@field input_position 'bottom'|'top' # Position of the input window (default: 'bottom')
----@field window_width number
+---@field window_width number # Width as fraction (0-1) or absolute columns (>1)
 ---@field input_height number
+---@field winfixwidth boolean # Whether to fix window width (default: false)
 ---@field display_model boolean
 ---@field display_context_size boolean
 ---@field display_cost boolean
 ---@field window_highlight string
 ---@field icons { preset: 'emoji'|'text'|'nerdfonts', overrides: table<string,string> }
+---@field loading_animation OpencodeLoadingAnimationConfig
 ---@field output { tools: { show_output: boolean } }
 ---@field input { text: { wrap: boolean } }
 ---@field completion OpencodeCompletionConfig
@@ -270,7 +285,7 @@
 ---@field msg_idx number|nil Message index in session
 ---@field part_idx number|nil Part index in message
 ---@field role 'user'|'assistant'|'system'|nil Message role
----@field type 'text'|'tool'|'header'|nil Message part type
+---@field type 'text'|'tool'|'header'|'patch'|'step-start'|nil Message part type
 ---@field snapshot? string|nil snapshot commit hash
 
 ---@class OutputAction
@@ -281,7 +296,7 @@
 ---@field display_line number Line number to display the action
 ---@field range? { from: number, to: number } Optional range for the action
 
----@alias OutputExtmark vim.api.keyset.set_extmark
+---@alias OutputExtmark vim.api.keyset.set_extmark|fun():vim.api.keyset.set_extmark
 
 ---@class Message
 ---@field id string Unique message identifier
@@ -296,6 +311,7 @@
 ---@field providerID string Provider identifier
 ---@field role 'user'|'assistant'|'system' Role of the message sender
 ---@field system_role string|nil Role defined in system messages
+---@field mode string|nil Agent or mode identifier
 ---@field error table
 
 ---@class RestorePoint
@@ -383,3 +399,76 @@
 ---@field source OpencodeMessagePartSource|nil
 ---@field name string|nil
 ---@field synthetic boolean|nil
+
+---@class OpencodeModelModalities
+---@field input ('text'|'image'|'audio'|'video')[] Supported input modalities
+---@field output ('text')[] Supported output modalities
+
+---@class OpencodeModelCost
+---@field input number Cost per input token
+---@field output number Cost per output token
+---@field cache_read number|nil Cost per cache read token
+---@field cache_write number|nil Cost per cache write token
+
+---@class OpencodeModelLimits
+---@field context number Maximum context length in tokens
+---@field output number Maximum output length in tokens
+
+---@class OpencodeModel
+---@field id string Unique identifier for the model
+---@field name string Human-readable name of the model
+---@field attachment boolean Whether the model supports file attachments
+---@field reasoning boolean Whether the model supports reasoning/thinking
+---@field temperature boolean Whether the model supports temperature parameter
+---@field tool_call boolean Whether the model supports tool calling
+---@field knowledge string|nil Knowledge cutoff date (e.g., "2024-04")
+---@field release_date string Release date in YYYY-MM-DD format
+---@field last_updated string Last updated date in YYYY-MM-DD format
+---@field modalities OpencodeModelModalities Supported input/output modalities
+---@field open_weights boolean Whether the model has open weights
+---@field limit OpencodeModelLimits Token limits for the model
+---@field cost OpencodeModelCost Pricing information for the model
+
+---@class OpencodeProvider
+---@field id string Unique identifier for the provider
+---@field env string[] Required environment variables for authentication
+---@field npm string NPM package name for the provider SDK
+---@field api string|nil Base API URL for the provider
+---@field name string Human-readable name of the provider
+---@field doc string|nil Documentation URL for the provider
+---@field models table<string, OpencodeModel> Map of model ID to model configuration
+
+---@class OpencodeProvidersResponse
+---@field providers OpencodeProvider[] List of available providers
+---@field default table<string, string> Map of provider ID to default model ID
+
+---@class OpencodeToolListItem
+---@field id string Tool identifier
+---@field description string Tool description
+---@field parameters any JSON schema parameters for the tool
+
+---@alias OpencodeToolList OpencodeToolListItem[]
+
+---@class OpencodeAgentPermissionBash
+---@field [string] string Permission level ('allow', 'deny', etc.)
+
+---@class OpencodeAgentPermission
+---@field edit string Permission level for edit operations
+---@field webfetch string Permission level for web fetch operations
+---@field bash OpencodeAgentPermissionBash Bash command permissions
+
+---@class OpencodeAgentModel
+---@field providerID string Provider identifier
+---@field modelID string Model identifier
+
+---@class OpencodeAgent
+---@field name string Unique identifier for the agent
+---@field description string Human-readable description of the agent
+---@field tools table<string, boolean> Map of tool names to availability
+---@field options table Additional configuration options
+---@field permission OpencodeAgentPermission Permissions for various operations
+---@field mode 'primary'|'subagent'|'all' Agent execution mode
+---@field builtIn boolean Whether this is a built-in agent
+---@field model OpencodeAgentModel|nil Optional model configuration
+---@field prompt string|nil Optional custom prompt for the agent
+---@field temperature number|nil Optional temperature setting
