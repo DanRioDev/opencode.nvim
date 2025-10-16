@@ -1,4 +1,5 @@
 <<<<<<< HEAD
+<<<<<<< HEAD
 --- @field get fun(key: nil): OpencodeConfig
 --- @field get fun(key: "preferred_picker"): 'mini.pick' | 'telescope' | 'fzf' | 'snacks' | nil
 --- @field get fun(key: "preferred_completion"): 'blink' | 'nvim-cmp' | 'vim_complete' | nil
@@ -13,11 +14,16 @@
 local M = {} ---@type OpencodeConfigModule
 
 =======
+=======
+>>>>>>> upstream/main
 -- Default and user-provided settings for opencode.nvim
 
 ---@type OpencodeConfigModule
 ---@diagnostic disable-next-line: missing-fields
 local M = {}
+<<<<<<< HEAD
+>>>>>>> upstream/main
+=======
 >>>>>>> upstream/main
 -- Default configuration
 ---@type OpencodeConfig

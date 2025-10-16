@@ -53,6 +53,7 @@
 ---@field [1] string # Function name
 ---@field mode? string|string[] # Mode(s) for the keymap
 ---@field desc? string # Keymap description
+<<<<<<< HEAD
 
 ---@class OpencodeKeymapEditor : table<string, OpencodeKeymapEntry>
 ---@class OpencodeKeymapInputWindow : table<string, OpencodeKeymapEntry>
@@ -84,6 +85,18 @@
 ---@field debug_output string
 ---@field debug_session string
 =======
+>>>>>>> upstream/main
+=======
+
+---@class OpencodeKeymapEditor : table<string, OpencodeKeymapEntry>
+---@class OpencodeKeymapInputWindow : table<string, OpencodeKeymapEntry>
+---@class OpencodeKeymapOutputWindow : table<string, OpencodeKeymapEntry>
+
+---@class OpencodeKeymapPermission
+---@field accept string
+---@field accept_all string
+---@field deny string
+
 >>>>>>> upstream/main
 ---@class OpencodeKeymap
 ---@field editor OpencodeKeymapEditor
@@ -123,9 +136,12 @@
 ---@class OpencodeContextConfig
 ---@field enabled boolean
 <<<<<<< HEAD
+<<<<<<< HEAD
 ---@field idle_threshold number Idle threshold in milliseconds for automatic context updates
 ---@field cache_ttl { git_info: number, plugin_versions: number, highlights: number, lsp_symbols: number }
 ---@field plugin_versions { enabled: boolean, limit: number }
+=======
+>>>>>>> upstream/main
 =======
 >>>>>>> upstream/main
 ---@field cursor_data { enabled: boolean }
