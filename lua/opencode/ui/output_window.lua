@@ -1,5 +1,5 @@
 local state = require('opencode.state')
-local config = require('opencode.config').get()
+local config = require('opencode.config')
 
 local M = {}
 
@@ -118,43 +118,8 @@ function M.close()
 end
 
 function M.setup_keymaps(windows)
-  local ui = require('opencode.ui.ui')
-  local api = require('opencode.api')
-  local map = require('opencode.keymap').buf_keymap
-  local nav = require('opencode.ui.navigation')
-
-  local keymaps = config.keymap.window
-  local output_buf = windows.output_buf
-
-  map(keymaps.close, api.close, output_buf, 'n')
-
-  map(keymaps.next_message, nav.goto_next_message, output_buf, 'n')
-  map(keymaps.prev_message, nav.goto_prev_message, output_buf, 'n')
-
-  map(keymaps.stop, api.stop, output_buf, { 'n' })
-
-  map(keymaps.toggle_pane, api.toggle_pane, output_buf, { 'n' })
-
-  map(keymaps.focus_input, function()
-    ui.focus_input({ restore_position = true, start_insert = true })
-  end, output_buf, 'n')
-
-  map(keymaps.switch_mode, api.switch_to_next_mode, output_buf, 'n')
-
-  map(keymaps.select_child_session, api.select_child_session, output_buf, 'n')
-
-  if config.debug.enabled then
-    local debug_helper = require('opencode.ui.debug_helper')
-    if debug_helper.debug_output then
-      map(keymaps.debug_output, debug_helper.debug_output, output_buf, 'n')
-    end
-    if debug_helper.debug_message then
-      map(keymaps.debug_message, debug_helper.debug_message, output_buf, 'n')
-    end
-    if debug_helper.debug_session then
-      map(keymaps.debug_session, debug_helper.debug_session, output_buf, 'n')
-    end
-  end
+  local keymap = require('opencode.keymap')
+  keymap.setup_window_keymaps(config.keymap.output_window, windows.output_buf)
 end
 
 function M.setup_autocmds(windows, group)
@@ -177,6 +142,10 @@ function M.setup_autocmds(windows, group)
       require('opencode.ui.input_window').refresh_placeholder(state.windows)
     end,
   })
+
+  state.subscribe('current_permission', function()
+    require('opencode.keymap').toggle_permission_keymap(windows.output_buf)
+  end)
 end
 
 function M.clear()

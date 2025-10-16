@@ -1,5 +1,5 @@
 local state = require('opencode.state')
-local config = require('opencode.config').get()
+local config = require('opencode.config')
 local util = require('opencode.util')
 local icons = require('opencode.ui.icons')
 local output_window = require('opencode.ui.output_window')
@@ -19,7 +19,8 @@ function M.render(windows)
   end
 
   if state.is_running() then
-    local cancel_keymap = config.keymap.window.stop or '<C-c>'
+    local config_mod = require('opencode.config')
+    local cancel_keymap = config_mod.get_key_for_function('input_window', 'stop') or '<C-c>'
     local legend = string.format(' %s to cancel', cancel_keymap)
     append_to_footer(legend)
   end

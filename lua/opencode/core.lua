@@ -8,7 +8,7 @@ local server_job = require('opencode.server_job')
 local input_window = require('opencode.ui.input_window')
 local util = require('opencode.util')
 local Promise = require('opencode.promise')
-local config = require('opencode.config').get()
+local config = require('opencode.config')
 
 ---@param parent_id string?
 function M.select_session(parent_id)
@@ -40,7 +40,6 @@ end
 function M.open(opts)
   opts = opts or { focus = 'input', new_session = false }
 
-  local state = require('opencode.state')
   if not state.opencode_server_job or not state.opencode_server_job:is_running() then
     state.opencode_server_job = server_job.ensure_server() --[[@as OpencodeServer]]
   end
@@ -158,16 +157,6 @@ function M.before_run(opts)
   })
 end
 
-function M.add_file_to_context()
-  local picker = require('opencode.ui.file_picker')
-  require('opencode.ui.mention').mention(function(mention_cb)
-    picker.pick(function(file)
-      mention_cb(file.path)
-      context.add_file(file.path)
-    end)
-  end)
-end
-
 function M.configure_provider()
   require('opencode.provider').select(function(selection)
     if not selection then
@@ -239,7 +228,7 @@ end
 
 function M.setup()
   local OpencodeApiClient = require('opencode.api_client')
-  state.api_client = OpencodeApiClient.new() --[[@as OpencodeApiClient]]
+  state.api_client = OpencodeApiClient.new()
 end
 
 return M

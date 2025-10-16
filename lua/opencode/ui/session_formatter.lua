@@ -3,7 +3,7 @@ local icons = require('opencode.ui.icons')
 local util = require('opencode.util')
 local Output = require('opencode.ui.output')
 local state = require('opencode.state')
-local config = require('opencode.config').get()
+local config = require('opencode.config')
 local snapshot = require('opencode.snapshot')
 
 local M = {
@@ -85,6 +85,32 @@ function M.format_session(session)
   return M.output:get_lines()
 end
 
+function M._format_permission_request()
+  local config_mod = require('opencode.config')
+  local keys
+
+  if require('opencode.ui.ui').is_opencode_focused() then
+    keys = {
+      config.keymap.permission.accept,
+      config.keymap.permission.accept_all,
+      config.keymap.permission.deny,
+    }
+  else
+    keys = {
+      config_mod.get_key_for_function('editor', 'permission_accept'),
+      config_mod.get_key_for_function('editor', 'permission_accept_all'),
+      config_mod.get_key_for_function('editor', 'permission_deny'),
+    }
+  end
+
+  M.output:add_empty_line()
+  M.output:add_line('> [!WARNING] Permission required to run this tool.')
+  M.output:add_line('>')
+  M.output:add_line(('> Accept `%s`    Always `%s`    Deny `%s`'):format(unpack(keys)))
+  M.output:add_empty_line()
+  -- return M.output:get_lines()
+end
+
 ---@param line number Buffer line number
 ---@return {message: Message, part: MessagePart, msg_idx: number, part_idx: number}|nil
 function M.get_message_at_line(line)
@@ -116,7 +142,7 @@ end
 ---@param messages Message[] All messages in the session
 ---@param revert_index number Index of the message where revert occurred
 ---@param revert_info SessionRevertInfo Revert information
----@return {messages: number, tool_calls: number, files: {additions: number, deletions: number}}
+---@return {messages: number, tool_calls: number, files: table<string, {additions: number, deletions: number}>}
 function M._calculate_revert_stats(messages, revert_index, revert_info)
   local stats = {
     messages = 0,
@@ -525,6 +551,10 @@ function M._format_tool(part)
   local metadata = (part.state and part.state.metadata) or {}
   local output = (part.state and part.state.output) or ''
 
+  if state.current_permission and state.current_permission.messageID == part.messageID then
+    metadata = state.current_permission.metadata or metadata
+  end
+
   if tool == 'bash' then
     M._format_bash_tool(input --[[@as BashToolInput]], metadata --[[@as BashToolMetadata]])
   elseif tool == 'read' or tool == 'edit' or tool == 'write' then
@@ -547,6 +577,10 @@ function M._format_tool(part)
 
   if part.state and part.state.status == 'error' then
     M._format_callout('ERROR', part.state.error)
+  end
+
+  if state.current_permission and state.current_permission.messageID == part.messageID then
+    M._format_permission_request()
   end
 
   M.output:add_empty_line()

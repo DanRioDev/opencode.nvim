@@ -216,6 +216,7 @@ function M.prev_history()
   local prev_prompt = history.prev()
   if prev_prompt then
     input_window.set_content(prev_prompt)
+    require('opencode.ui.mention').restore_mentions(state.windows.input_buf)
   end
 end
 
@@ -223,7 +224,109 @@ function M.next_history()
   local next_prompt = history.next()
   if next_prompt then
     input_window.set_content(next_prompt)
+    require('opencode.ui.mention').restore_mentions(state.windows.input_buf)
   end
+end
+
+function M.prev_prompt_history()
+  local config = require('opencode.config')
+  local key = config.get_key_for_function('input_window', 'prev_prompt_history')
+  if key ~= '<up>' then
+    return M.prev_history()
+  end
+  local current_line = vim.api.nvim_win_get_cursor(0)[1]
+  local at_boundary = current_line <= 1
+
+  if at_boundary then
+    return M.prev_history()
+  end
+  vim.api.nvim_feedkeys(vim.api.nvim_replace_termcodes(key, true, false, true), 'n', false)
+end
+
+function M.next_prompt_history()
+  local config = require('opencode.config')
+  local key = config.get_key_for_function('input_window', 'next_prompt_history')
+  if key ~= '<down>' then
+    return M.next_history()
+  end
+  local current_line = vim.api.nvim_win_get_cursor(0)[1]
+  local at_boundary = current_line >= vim.api.nvim_buf_line_count(0)
+
+  if at_boundary then
+    return M.next_history()
+  end
+  vim.api.nvim_feedkeys(vim.api.nvim_replace_termcodes(key, true, false, true), 'n', false)
+end
+
+function M.next_message()
+  require('opencode.ui.navigation').goto_next_message()
+end
+
+function M.prev_message()
+  require('opencode.ui.navigation').goto_prev_message()
+end
+
+function M.submit_input_prompt()
+  input_window.handle_submit()
+end
+
+function M.mention_file()
+  local picker = require('opencode.ui.file_picker')
+  local context = require('opencode.context')
+  require('opencode.ui.mention').mention(function(mention_cb)
+    picker.pick(function(file)
+      mention_cb(file.path)
+      context.add_file(file.path)
+    end)
+  end)
+end
+
+function M.mention()
+  local config = require('opencode.config')
+  local char = config.get_key_for_function('input_window', 'mention')
+  ui.focus_input({ restore_position = true, start_insert = true })
+  require('opencode.ui.completion').trigger_completion(char)()
+end
+
+function M.slash_commands()
+  local config = require('opencode.config')
+  local char = config.get_key_for_function('input_window', 'slash_commands')
+  ui.focus_input({ restore_position = true, start_insert = true })
+  require('opencode.ui.completion').trigger_completion(char)()
+end
+
+function M.focus_input()
+  ui.focus_input({ restore_position = true, start_insert = true })
+end
+
+function M.debug_output()
+  local config = require('opencode.config')
+  if not config.debug.enabled then
+    vim.notify('Debugging is not enabled in the config', vim.log.levels.WARN)
+    return
+  end
+  local debug_helper = require('opencode.ui.debug_helper')
+  debug_helper.debug_output()
+end
+
+function M.debug_message()
+  local config = require('opencode.config')
+  if not config.debug.enabled then
+    vim.notify('Debugging is not enabled in the config', vim.log.levels.WARN)
+    return
+  end
+  local debug_helper = require('opencode.ui.debug_helper')
+  debug_helper.debug_message()
+end
+
+function M.debug_session()
+  local config = require('opencode.config')
+  if not config.debug.enabled then
+    vim.notify('Debugging is not enabled in the config', vim.log.levels.WARN)
+    return
+  end
+  local debug_helper = require('opencode.ui.debug_helper')
+  debug_helper.debug_session()
 end
 
 function M.initialize()
@@ -272,7 +375,7 @@ function M.select_agent()
   end)
 end
 
-function M.switch_to_next_mode()
+function M.switch_mode()
   local modes = require('opencode.config_file').get_opencode_agents()
 
   local current_index = util.index_of(modes, state.current_mode)
@@ -373,14 +476,23 @@ function M.mcp()
   ui.render_lines(msg)
 end
 
-function M.run_user_command(name)
+--- Runs a user-defined command by name.
+--- @param name string The name of the user command to run.
+--- @param args? string[] Additional arguments to pass to the command.
+function M.run_user_command(name, args)
   M.open_input()
 
   ui.render_output(true)
-  state.api_client:send_command(state.active_session.id, {
-    command = name,
-    arguments = '',
-  })
+  state.api_client
+    :send_command(state.active_session.id, {
+      command = name,
+      arguments = table.concat(args or {}, ' '),
+    })
+    :and_then(function()
+      vim.schedule(function()
+        require('opencode.history').write('/' .. name .. ' ' .. table.concat(args or {}, ' '))
+      end)
+    end)
 end
 
 --- Compacts the current session by removing unnecessary data.
@@ -510,6 +622,42 @@ function M.redo()
         vim.notify('Failed to undo last message: ' .. vim.inspect(err), vim.log.levels.ERROR)
       end)
     end)
+end
+
+---@param answer? 'once'|'always'|'reject'
+function M.respond_to_permission(answer)
+  answer = answer or 'once'
+  if not state.current_permission then
+    vim.notify('No permission request to accept', vim.log.levels.WARN)
+    return
+  end
+
+  ui.render_output(true)
+  state.api_client
+    :respond_to_permission(state.current_permission.sessionID, state.current_permission.id, { response = answer })
+    :and_then(function()
+      vim.schedule(function()
+        state.current_permission = nil
+        ui.render_output(true)
+      end)
+    end)
+    :catch(function(err)
+      vim.schedule(function()
+        vim.notify('Failed to reply to permission: ' .. vim.inspect(err), vim.log.levels.ERROR)
+      end)
+    end)
+end
+
+function M.permission_accept()
+  M.respond_to_permission('once')
+end
+
+function M.permission_accept_all()
+  M.respond_to_permission('always')
+end
+
+function M.permission_deny()
+  M.respond_to_permission('reject')
 end
 
 -- Command def/compactinitions that call the API functions
@@ -838,12 +986,13 @@ M.commands = {
     name = 'OpencodeRunUserCommand',
     desc = 'Run a user-defined Opencode command by name',
     fn = function(opts)
-      local name = opts.args and opts.args:match('^%s*(%S+)')
+      local parts = vim.split(opts.args or '', '%s+')
+      local name = parts[1]
       if not name or name == '' then
         vim.notify('User command name required. Usage: :OpencodeRunUserCommand <name>', vim.log.levels.ERROR)
         return
       end
-      M.run_user_command(name)
+      M.run_user_command(name, vim.list_slice(parts, 2))
     end,
     args = true,
   },
@@ -912,8 +1061,33 @@ M.commands = {
     end,
     slash_cmd = '/redo',
   },
+
+  permission_accept = {
+    name = 'OpencodePermissionAccept',
+    desc = 'Accept current permission request',
+    fn = function()
+      M.respond_to_permission('once')
+    end,
+  },
+
+  permission_accept_all = {
+    name = 'OpencodePermissionAcceptAll',
+    desc = 'Accept all permission requests',
+    fn = function()
+      M.respond_to_permission('always')
+    end,
+  },
+
+  permission_deny = {
+    name = 'OpencodePermissionDeny',
+    desc = 'Deny current permission request',
+    fn = function()
+      M.respond_to_permission('reject')
+    end,
+  },
 }
 
+---@return OpencodeSlashCommand[]
 function M.get_slash_commands()
   local commands = vim.tbl_filter(function(cmd)
     return cmd.slash_cmd and cmd.slash_cmd ~= ''
@@ -921,12 +1095,13 @@ function M.get_slash_commands()
 
   local user_commands = require('opencode.config_file').get_user_commands()
   if user_commands then
-    for name, _ in pairs(user_commands) do
+    for name, cfg in pairs(user_commands) do
       table.insert(commands, {
         slash_cmd = '/' .. name,
         desc = 'Run user command: ' .. name,
-        fn = function()
-          M.commands.run_user_command.fn({ args = name })
+        args = cfg.template and cfg.template:match('$ARGUMENTS') ~= nil,
+        fn = function(args)
+          M.run_user_command(name, args)
         end,
       })
     end

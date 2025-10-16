@@ -70,7 +70,7 @@ end
 ---@param type 'vertical' | 'horizontal'
 local function open_split(direction, type)
   if type == 'vertical' then
-    vim.cmd((direction == 'left' and 'leftabove' or 'rightbelow') .. ' vsplit')
+    vim.cmd((direction == 'left' and 'topleft' or 'botright') .. ' vsplit')
   else
     vim.cmd((direction == 'top' and 'aboveleft' or 'belowright') .. ' split')
   end
@@ -81,7 +81,7 @@ function M.create_split_windows(input_buf, output_buf)
   if state.windows then
     M.close_windows(state.windows)
   end
-  local ui_conf = config.get('ui')
+  local ui_conf = config.ui
 
   local main_win = open_split(ui_conf.position, 'vertical')
   vim.api.nvim_set_current_win(main_win)
@@ -126,6 +126,10 @@ function M.focus_input(opts)
   opts = opts or {}
   local windows = state.windows
   if not windows then
+    return
+  end
+
+  if vim.api.nvim_get_current_win() == windows.input_win then
     return
   end
 
@@ -240,7 +244,7 @@ function M.toggle_pane()
 end
 
 function M.swap_position()
-  local ui_conf = config.get('ui')
+  local ui_conf = config.ui
   local new_pos = (ui_conf.position == 'left') and 'right' or 'left'
   config.values.ui.position = new_pos
 

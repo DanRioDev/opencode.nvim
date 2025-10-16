@@ -7,13 +7,12 @@ local config_file = require('opencode.config_file')
 function M.setup(opts)
   vim.schedule(function()
     require('opencode.core').setup()
-    config_file.setup()
     config.setup(opts)
     api.setup()
-    keymap.setup(config.get('keymap'))
+    keymap.setup(config.keymap)
 
-    local completion = require('opencode.ui.completion')
-    completion.setup(config)
+    require('opencode.ui.completion').setup()
+    require('opencode.event_manager').setup()
   end)
 end
 
