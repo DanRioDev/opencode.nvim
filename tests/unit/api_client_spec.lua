@@ -96,4 +96,34 @@ describe('api_client', function()
     -- Restore original function
     server_job.call_api = original_call_api
   end)
+
+  it('subscribe_to_events handles nil base_url by getting it from state', function()
+    local state = require('opencode.state')
+    local original_opencode_server_job = state.opencode_server_job
+    state.opencode_server_job = { url = 'http://localhost:8080/' }
+
+    local server_job = require('opencode.server_job')
+    local original_stream_api = server_job.stream_api
+    local captured_calls = {}
+
+    server_job.stream_api = function(url, method, body, callback)
+      table.insert(captured_calls, { url = url, method = method, body = body, callback = callback })
+      -- Mock job object
+      return {
+        shutdown = function() end
+      }
+    end
+
+    local client = api_client.new() -- No base_url provided
+    assert.is_nil(client.base_url) -- Initially nil
+
+    local job = client:subscribe_to_events(nil, function() end)
+    assert.is_not_nil(job)
+    assert.are.equal('http://localhost:8080/event', captured_calls[1].url)
+    assert.are.equal('GET', captured_calls[1].method)
+
+    -- Restore
+    server_job.stream_api = original_stream_api
+    state.opencode_server_job = original_opencode_server_job
+  end)
 end)

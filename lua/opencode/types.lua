@@ -321,6 +321,7 @@
 ---@field context? OpencodeContextConfig
 ---@field model? string
 ---@field agent? string
+---@field _retry_count? number
 
 ---@class CompletionContext
 ---@field trigger_char string The character that triggered completion

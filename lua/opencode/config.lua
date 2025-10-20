@@ -1,30 +1,12 @@
-<<<<<<< HEAD
-<<<<<<< HEAD
---- @field get fun(key: nil): OpencodeConfig
---- @field get fun(key: "preferred_picker"): 'mini.pick' | 'telescope' | 'fzf' | 'snacks' | nil
---- @field get fun(key: "preferred_completion"): 'blink' | 'nvim-cmp' | 'vim_complete' | nil
---- @field get fun(key: "default_mode"): 'build' | 'plan'
---- @field get fun(key: "default_global_keymaps"): boolean
---- @field get fun(key: "keymap"): OpencodeKeymap
---- @field get fun(key: "ui"): OpencodeUIConfig
---- @field get fun(key: "providers"): OpencodeProviders
---- @field get fun(key: "context"): OpencodeContextConfig
---- @field get fun(key: "debug"): OpencodeDebugConfig
+---@class OpencodeConfigModule
+---@field defaults OpencodeConfig
+---@field values OpencodeConfig
+---@field setup fun(opts: OpencodeConfig)
+---@field get_key_for_function fun(scope: 'editor'|'input_window'|'output_window', function_name: string): string|nil
+---@field normalize_keymap fun(legacy_config: table, filter_functions?: table): table
+---@field get fun(key?: string): any
 
 local M = {} ---@type OpencodeConfigModule
-
-=======
-=======
->>>>>>> upstream/main
--- Default and user-provided settings for opencode.nvim
-
----@type OpencodeConfigModule
----@diagnostic disable-next-line: missing-fields
-local M = {}
-<<<<<<< HEAD
->>>>>>> upstream/main
-=======
->>>>>>> upstream/main
 -- Default configuration
 ---@type OpencodeConfig
 M.defaults = {
@@ -286,6 +268,10 @@ local function get_function_names(keymap_config)
   return names
 end
 
+---Update keymap prefix in configuration
+---@param prefix string New prefix to use
+---@param default_prefix string Default prefix to replace
+---@return nil
 function update_keymap_prefix(prefix, default_prefix)
   if prefix == default_prefix or not prefix then
     return
@@ -383,6 +369,16 @@ function M.normalize_keymap(legacy_config, filter_functions)
     end
   end
   return converted
+end
+
+--- Get configuration value
+--- @param key? string
+--- @return any
+function M.get(key)
+  if key then
+    return M.values[key]
+  end
+  return M.values
 end
 
 ---@export Config

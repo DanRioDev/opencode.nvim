@@ -35,4 +35,20 @@ describe('opencode.config', function()
     assert.equal(custom_callback, config.values.command_callback)
     assert.same(config.defaults.keymap, config.values.keymap)
   end)
+
+  it('get function returns entire config when no key provided', function()
+    config.setup({
+      default_mode = 'plan',
+    })
+    local cfg = config.get()
+    assert.equal('plan', cfg.default_mode)
+  end)
+
+  it('get function returns specific key value', function()
+    config.setup({
+      default_mode = 'plan',
+    })
+    local mode = config.get('default_mode')
+    assert.equal('plan', mode)
+  end)
 end)

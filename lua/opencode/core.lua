@@ -80,41 +80,72 @@ function M.open(opts)
   end
 end
 
+--- Validates that the active session exists on the server
+--- @return boolean
+local function validate_session()
+   if not state.active_session or not state.api_client or not state.api_client.get_session then
+     return true -- Skip validation if not available
+   end
+
+   local ok, session_check = pcall(function()
+     return state.api_client:get_session(state.active_session.id):wait()
+   end)
+   return ok and session_check ~= nil
+end
+
 --- Sends a message to the active session, creating one if necessary.
 --- @param prompt string The message prompt to send.
 --- @param opts? SendMessageOpts
 function M.send_message(prompt, opts)
-  opts = opts or {}
-  opts.context = opts.context or config.context
-  opts.model = opts.model or state.current_model
-  opts.agent = opts.agent or state.current_mode or config.default_mode
+   opts = opts or {}
+   opts.context = opts.context or config.context
+   opts.model = opts.model or state.current_model
+   opts.agent = opts.agent or state.current_mode or config.default_mode
+   opts._retry_count = opts._retry_count or 0
 
-  local params = {}
+   -- Validate session exists before proceeding
+   if not validate_session() and opts._retry_count == 0 then
+     vim.notify('Session validation failed. Creating a new session...', vim.log.levels.WARN)
+     state.active_session = nil
+     opts._retry_count = opts._retry_count + 1
+     return M.send_message(prompt, opts)
+   end
 
-  if opts.model then
-    local provider, model = opts.model:match('^(.-)/(.+)$')
-    params.model = { providerID = provider, modelID = model }
-  end
+   local params = {}
 
-  if opts.agent then
-    params.agent = opts.agent
-  end
+   if opts.model then
+     local provider, model = opts.model:match('^(.-)/(.+)$')
+     params.model = { providerID = provider, modelID = model }
+   end
 
-  params.parts = context.format_message(prompt, opts.context)
+   if opts.agent then
+     params.agent = opts.agent
+   end
 
-  M.before_run(opts)
+   params.parts = context.format_message(prompt, opts.context)
 
-  ui.render_output(true)
-  state.api_client
-    :create_message(state.active_session.id, params)
-    :and_then(function(response)
-      state.last_output = os.time()
-      ui.render_output()
-      M.after_run(prompt)
-    end)
-    :catch(function(err)
-      vim.notify('Error sending message to session: ' .. vim.inspect(err), vim.log.levels.ERROR)
-    end)
+   M.before_run(opts)
+
+   ui.render_output(true)
+   state.api_client
+     :create_message(state.active_session.id, params)
+     :and_then(function(response)
+       state.last_output = os.time()
+       ui.render_output()
+       M.after_run(prompt)
+     end)
+     :catch(function(err)
+       -- Check if session not found (404) and we haven't exceeded retry limit
+       if err and err.data and err.data.message and err.data.message:match("Session not found") and opts._retry_count < 1 then
+         vim.notify('Session not found on server. Creating a new session...', vim.log.levels.WARN)
+         state.active_session = nil
+         -- Retry with new session (increment retry count)
+         opts._retry_count = opts._retry_count + 1
+         M.send_message(prompt, opts)
+       else
+         vim.notify('Error sending message to session: ' .. vim.inspect(err), vim.log.levels.ERROR)
+       end
+     end)
 end
 
 ---@param title? string
