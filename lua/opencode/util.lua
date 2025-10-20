@@ -288,6 +288,11 @@ end
 ---@param required_version string
 ---@return boolean
 function M.is_version_greater_or_equal(version, required_version)
+  -- Treat 'dev' versions as always valid (development versions are typically newer)
+  if version == 'dev' then
+    return true
+  end
+
   local major, minor, patch = M.parse_semver(version)
   local req_major, req_minor, req_patch = M.parse_semver(required_version)
   if not major or not req_major then

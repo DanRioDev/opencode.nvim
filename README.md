@@ -52,6 +52,7 @@ If your upgrade breaks the plugin, please open an issue or downgrade to the last
 ## 📋 Requirements
 
 - Opencode (v0.6.3+ or more) CLI installed and available (see [Setting up opencode](#-setting-up-opencode) below)
+- For RPC functionality: opencode-rpc.lua plugin (included in this repository)
 
 ## 🚀 Installation
 

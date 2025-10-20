@@ -181,7 +181,7 @@ M.defaults = {
     },
     diagnostics = {
       info = false,
-      warning = true,
+      warning = false,
       error = true,
     },
     current_file = {

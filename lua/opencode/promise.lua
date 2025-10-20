@@ -143,4 +143,35 @@ function Promise:is_rejected()
   return self._resolved and self._error ~= nil
 end
 
+-- Static method to wait for multiple promises
+function Promise.all(promises)
+  local all_promise = Promise.new()
+  local results = {}
+  local count = #promises
+  local resolved_count = 0
+  local has_error = false
+
+  if count == 0 then
+    all_promise:resolve(results)
+    return all_promise
+  end
+
+  for i, p in ipairs(promises) do
+    p:and_then(function(result)
+      results[i] = result
+      resolved_count = resolved_count + 1
+      if resolved_count == count and not has_error then
+        all_promise:resolve(results)
+      end
+    end):catch(function(err)
+      if not has_error then
+        has_error = true
+        all_promise:reject(err)
+      end
+    end)
+  end
+
+  return all_promise
+end
+
 return Promise

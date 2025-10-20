@@ -41,7 +41,9 @@ function M.open(opts)
   opts = opts or { focus = 'input', new_session = false }
 
   if not state.opencode_server_job or not state.opencode_server_job:is_running() then
-    state.opencode_server_job = server_job.ensure_server() --[[@as OpencodeServer]]
+    server_job.ensure_server():and_then(function(server)
+      state.opencode_server_job = server
+    end)
   end
 
   if not M.opencode_ok() then
@@ -231,7 +233,9 @@ function M.setup()
 
   -- Add this block to ensure the server is running
   if not state.opencode_server_job or not state.opencode_server_job:is_running() then
-    state.opencode_server_job = server_job.ensure_server() --[[@as OpencodeServer]]
+    server_job.ensure_server():and_then(function(server)
+      state.opencode_server_job = server
+    end)
   end
 
   state.api_client = OpencodeApiClient.new()
