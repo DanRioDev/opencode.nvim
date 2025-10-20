@@ -1,8 +1,31 @@
 -- Default and user-provided settings for opencode.nvim
 
----@type OpencodeConfigModule
----@diagnostic disable-next-line: missing-fields
-local M = {}
+--- @class OpencodeConfigModule
+--- @field defaults OpencodeConfig
+--- @field values OpencodeConfig
+--- @field setup fun(opts?: OpencodeConfig): nil
+--- @field get fun(key: nil): OpencodeConfig
+--- @field get fun(key: "preferred_picker"): 'mini.pick' | 'telescope' | 'fzf' | 'snacks' | nil
+--- @field get fun(key: "preferred_completion"): 'blink' | 'nvim-cmp' | 'vim_complete' | nil
+--- @field get fun(key: "default_mode"): 'build' | 'plan' |
+--- @field get fun(key: "default_global_keymaps"): boolean
+--- @field get fun(key: "keymap"): OpencodeKeymap
+--- @field get fun(key: "ui"): OpencodeUIConfig
+--- @field get fun(key: "providers"): OpencodeProviders
+--- @field get fun(key: "context"): OpencodeContextConfig
+--- @field get fun(key: "debug"): OpencodeDebugConfig
+
+--- @field get fun(key: "preferred_completion"): 'blink' | 'nvim-cmp' | 'vim_complete' | nil
+--- @field get fun(key: "default_mode"): 'build' | 'plan'
+--- @field get fun(key: "default_global_keymaps"): boolean
+--- @field get fun(key: "keymap"): OpencodeKeymap
+--- @field get fun(key: "ui"): OpencodeUIConfig
+--- @field get fun(key: "providers"): OpencodeProviders
+--- @field get fun(key: "context"): OpencodeContextConfig
+--- @field get fun(key: "debug"): OpencodeDebugConfig
+
+local M = {} ---@type OpencodeConfigModule
+
 -- Default configuration
 ---@type OpencodeConfig
 M.defaults = {
@@ -153,11 +176,11 @@ M.defaults = {
       limit = 20,
     },
     cursor_data = {
-      enabled = false,
+      enabled = true,
     },
     diagnostics = {
       info = false,
-      warning = true,
+      warning = false,
       error = true,
     },
     current_file = {
@@ -243,6 +266,11 @@ M.defaults = {
     },
     session_duration = {
       enabled = false,
+    },
+    vectorcode_snippets = {
+      enabled = true,
+      n = 3,
+      query_strategy = 'auto', -- 'auto', 'selection', 'line', 'filename'
     },
   },
   debug = {

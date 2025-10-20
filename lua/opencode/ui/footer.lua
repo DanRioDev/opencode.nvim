@@ -26,6 +26,7 @@ function M.render(windows)
   end
 
   if state.current_model then
+    local config = require('opencode.config').get()
     if config.ui.display_context_size then
       local provider, model = state.current_model:match('^(.-)/(.+)$')
       local model_info = config_file.get_model_info(provider, model)

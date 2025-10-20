@@ -102,6 +102,10 @@
 ---@field accept_all string
 ---@field deny string
 
+---@field permission_accept string
+---@field permission_accept_all string
+---@field permission_deny string
+
 ---@class OpencodeKeymap
 ---@field editor OpencodeKeymapEditor
 ---@field input_window OpencodeKeymapInputWindow
@@ -158,6 +162,7 @@
 ---@field defaults OpencodeConfig
 ---@field values OpencodeConfig
 ---@field setup fun(opts?: OpencodeConfig): nil
+---@field get fun(key?: string): any
 ---@field get_key_for_function fun(scope: 'editor'|'input_window'|'output_window', function_name: string): string|nil
 ---@field normalize_keymap fun(legacy_config: table, filter_functions?: table): table
 

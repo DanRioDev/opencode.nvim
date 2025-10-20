@@ -52,6 +52,7 @@ If your upgrade breaks the plugin, please open an issue or downgrade to the last
 ## 📋 Requirements
 
 - Opencode (v0.6.3+ or more) CLI installed and available (see [Setting up opencode](#-setting-up-opencode) below)
+- For RPC functionality: opencode-rpc.lua plugin (included in this repository)
 
 ## 🚀 Installation
 
@@ -124,6 +125,31 @@ require('opencode').setup({
       ['<leader>opa'] = { 'permission_accept' }, -- Accept permission request once
       ['<leader>opA'] = { 'permission_accept_all' }, -- Accept all (for current tool)
       ['<leader>opd'] = { 'permission_deny' }, -- Deny permission request once
+    global = {
+      toggle = '<leader>og', -- Open opencode. Close if opened
+      open_input = '<leader>oi', -- Opens and focuses on input window on insert mode
+      open_input_new_session = '<leader>oI', -- Opens and focuses on input window on insert mode. Creates a new session
+      open_output = '<leader>oo', -- Opens and focuses on output window
+      toggle_focus = '<leader>ot', -- Toggle focus between opencode and last window
+      close = '<leader>oq', -- Close UI windows
+      select_session = '<leader>os', -- Select and load a opencode session
+      configure_provider = '<leader>op', -- Quick provider and model switch from predefined list
+      diff_open = '<leader>od', -- Opens a diff tab of a modified file since the last opencode prompt
+      diff_next = '<leader>o]', -- Navigate to next file diff
+      diff_prev = '<leader>o[', -- Navigate to previous file diff
+      diff_close = '<leader>oc', -- Close diff view tab and return to normal editing
+      diff_revert_all_last_prompt = '<leader>ora', -- Revert all file changes since the last opencode prompt
+      diff_revert_this_last_prompt = '<leader>ort', -- Revert current file changes since the last opencode prompt
+      diff_revert_all = '<leader>orA', -- Revert all file changes since the last opencode session
+      diff_revert_this = '<leader>orT', -- Revert current file changes since the last opencode session
+      diff_restore_snapshot_file = '<leader>orr', -- Restore file to snapshot
+      diff_restore_snapshot_all = '<leader>orR', -- Restore all files to snapshot
+      open_configuration_file = '<leader>oC', -- Open opencode configuration file
+      swap_position = '<leader>ox', -- Swap Opencode pane left/right
+      permission_accept = '<leader>opa',  -- Accept permission request once
+      permission_accept_all = '<leader>opA', -- Accept all (for current tool)
+      permission_deny = '<leader>opd',-- Accept permission request once
+      debug_session = '<leader>ods', -- Debug session info
     },
     input_window = {
       ['<cr>'] = { 'submit_input_prompt', mode = { 'n', 'i' } }, -- Submit prompt (normal mode and insert mode)
@@ -488,39 +514,39 @@ The following editor context is automatically captured and included in your conv
 
 ### Core Context (Enabled by Default)
 
-| Context Type    | Description                                          | Configuration Key        |
-| --------------- | ---------------------------------------------------- | ------------------------ |
-| Current file    | Path to the focused file before entering opencode    | `current_file.enabled`   |
-| Selected text   | Text and lines currently selected in visual mode     | `selection.enabled`      |
-| Mentioned files | File info added through [mentions](#file-mentions)   | N/A (always available)   |
-| Diagnostics     | Diagnostics from the current file (if any)           | `diagnostics`            |
-| Cursor position | Current cursor position and line content in the file | `cursor_data.enabled`    |
+| Context Type    | Description                                          | Configuration Key      |
+| --------------- | ---------------------------------------------------- | ---------------------- |
+| Current file    | Path to the focused file before entering opencode    | `current_file.enabled` |
+| Selected text   | Text and lines currently selected in visual mode     | `selection.enabled`    |
+| Mentioned files | File info added through [mentions](#file-mentions)   | N/A (always available) |
+| Diagnostics     | Diagnostics from the current file (if any)           | `diagnostics`          |
+| Cursor position | Current cursor position and line content in the file | `cursor_data.enabled`  |
 
 ### Enhanced Context (Disabled by Default)
 
 These additional context types can be enabled to provide even more information to the AI:
 
-| Context Type       | Description                                                | Configuration Key          |
-| ------------------ | ---------------------------------------------------------- | -------------------------- |
-| Marks              | 10 most recently accessed marks                            | `marks.enabled`            |
-| Jumplist           | Last 10 jumps in the jump list                             | `jumplist.enabled`         |
-| Recent Buffers     | 10 most recently accessed buffers                          | `recent_buffers.enabled`   |
-| Undo History       | Last 10 undo branches or changesets                        | `undo_history.enabled`     |
-| Windows & Tabs     | Information about active windows and tabs                  | `windows_tabs.enabled`     |
-| Highlights         | Buffer line highlights in current viewport                 | `highlights.enabled`       |
-| Session Info       | Current Neovim session name if active                      | `session_info.enabled`     |
-| Registers          | Contents of specified registers (e.g., `"`, `/`, `q`)      | `registers.enabled`        |
-| Command History    | Last 5 executed Vim commands                               | `command_history.enabled`  |
-| Search History     | Last 5 search patterns                                     | `search_history.enabled`   |
-| Debug Data         | Active nvim-dap debugging sessions and breakpoints         | `debug_data.enabled`       |
-| LSP Context        | LSP diagnostics and available code actions                 | `lsp_context.enabled`      |
-| Git Info           | Current branch, file diff, and recent commits              | `git_info.enabled`         |
-| Fold Info          | Visible folds in current viewport                          | `fold_info.enabled`        |
-| Cursor Surrounding | Lines above and below cursor position                      | `cursor_surrounding.enabled`|
-| Quickfix/Loclist   | Quickfix and location list entries                         | `quickfix_loclist.enabled` |
-| Macros             | Recorded macro content from specified register             | `macros.enabled`           |
-| Terminal Buffers   | Most recently used terminal buffer details                 | `terminal_buffers.enabled` |
-| Session Duration   | Time spent in current Neovim session                       | `session_duration.enabled` |
+| Context Type       | Description                                           | Configuration Key            |
+| ------------------ | ----------------------------------------------------- | ---------------------------- |
+| Marks              | 10 most recently accessed marks                       | `marks.enabled`              |
+| Jumplist           | Last 10 jumps in the jump list                        | `jumplist.enabled`           |
+| Recent Buffers     | 10 most recently accessed buffers                     | `recent_buffers.enabled`     |
+| Undo History       | Last 10 undo branches or changesets                   | `undo_history.enabled`       |
+| Windows & Tabs     | Information about active windows and tabs             | `windows_tabs.enabled`       |
+| Highlights         | Buffer line highlights in current viewport            | `highlights.enabled`         |
+| Session Info       | Current Neovim session name if active                 | `session_info.enabled`       |
+| Registers          | Contents of specified registers (e.g., `"`, `/`, `q`) | `registers.enabled`          |
+| Command History    | Last 5 executed Vim commands                          | `command_history.enabled`    |
+| Search History     | Last 5 search patterns                                | `search_history.enabled`     |
+| Debug Data         | Active nvim-dap debugging sessions and breakpoints    | `debug_data.enabled`         |
+| LSP Context        | LSP diagnostics and available code actions            | `lsp_context.enabled`        |
+| Git Info           | Current branch, file diff, and recent commits         | `git_info.enabled`           |
+| Fold Info          | Visible folds in current viewport                     | `fold_info.enabled`          |
+| Cursor Surrounding | Lines above and below cursor position                 | `cursor_surrounding.enabled` |
+| Quickfix/Loclist   | Quickfix and location list entries                    | `quickfix_loclist.enabled`   |
+| Macros             | Recorded macro content from specified register        | `macros.enabled`             |
+| Terminal Buffers   | Most recently used terminal buffer details            | `terminal_buffers.enabled`   |
+| Session Duration   | Time spent in current Neovim session                  | `session_duration.enabled`   |
 
 To enable any of these enhanced context types, add them to your configuration:
 
@@ -539,8 +565,6 @@ require('opencode').setup({
 ```
 
 **Note:** Enhanced context types are disabled by default to minimize token usage and API costs. Enable only the context types that are relevant to your workflow.
-
-<a id="file-mentions"></a>
 
 ### Adding more files to context through file mentions
 

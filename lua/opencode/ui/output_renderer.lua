@@ -99,7 +99,7 @@ function M.start_refresh_timer(windows)
       vim.defer_fn(function()
         M.render(windows, true)
         vim.cmd('checktime')
-      end, 300)
+      end, 0)
     end,
     repeat_timer = true,
   })

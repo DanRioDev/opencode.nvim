@@ -113,7 +113,7 @@ function M.start_job(section_name, cmd, callback, opts)
         opts.on_error({ 'Job timeout after ' .. timeout .. 'ms' })
       end
     end
-  end, timeout)
+  end, timeout or 0)
 
   return job_id
 end

@@ -19,7 +19,7 @@ function M.scroll_to_bottom()
 
   vim.defer_fn(function()
     renderer.render_markdown()
-  end, 200)
+  end, 100)
 end
 
 ---@param windows OpencodeWindowState

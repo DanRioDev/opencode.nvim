@@ -4,8 +4,55 @@ local util = require('opencode.util')
 local config = require('opencode.config')
 local state = require('opencode.state')
 local context_cache = require('opencode.context_cache')
+local Promise = require('opencode.promise')
+-- local context_mcphub = require('opencode.context_mcphub')
 
 local M = {}
+
+--- Parse MCPHub diagnostics output into OpenCode LSP context format
+---@param mcphub_output string
+---@return table|nil
+function M.parse_mcphub_diagnostics(mcphub_output)
+  if not mcphub_output or mcphub_output == '' then
+    return nil
+  end
+
+  -- MCPHub diagnostics format: "Diagnostics for: /path/to/file\n=====\n\nERROR: [source] Location: Line X, Col Y Message\n=====\n"
+  local diagnostics = {}
+
+  -- Extract file path from header
+  local filepath = mcphub_output:match('Diagnostics for: ([^\n]+)')
+  if not filepath then
+    return nil
+  end
+
+  -- Parse individual diagnostic lines
+  for line in mcphub_output:gmatch('[^\n]+') do
+    -- Match pattern: "SEVERITY: [source] Location: Line X, Col Y Message"
+    local severity, source, line_num, col_num, message =
+      line:match('(%u+): %[([^%]]*)%] Location: Line (%d+), Col (%d+) (.+)')
+    if severity and line_num and col_num and message then
+      table.insert(diagnostics, {
+        severity = severity,
+        source = source ~= '' and source or nil,
+        lnum = tonumber(line_num) - 1, -- Convert to 0-based
+        col = tonumber(col_num) - 1, -- Convert to 0-based
+        message = message,
+        filepath = filepath,
+      })
+    end
+  end
+
+  if #diagnostics == 0 then
+    return nil
+  end
+
+  return {
+    diagnostics = diagnostics,
+    file_count = 1,
+    total_count = #diagnostics,
+  }
+end
 
 local cache = { timestamp = 0, last_changedtick = 0, data = nil }
 
@@ -25,7 +72,8 @@ local function filter_path_privacy(path)
   end
 
   -- Check if privacy filtering is enabled in config
-  if config.context and config.context.privacy_filter and config.context.privacy_filter.enabled == false then
+  local cfg = config
+  if cfg.context and cfg.context.privacy_filter and cfg.context.privacy_filter.enabled == false then
     return path
   end
 
@@ -46,7 +94,8 @@ local function contains_secret(content)
   end
 
   -- Check if secret filtering is enabled in config
-  if config.context and config.context.secret_filter and config.context.secret_filter.enabled == false then
+  local cfg = config
+  if cfg.context and cfg.context.secret_filter and cfg.context.secret_filter.enabled == false then
     return false
   end
 
@@ -75,6 +124,35 @@ local function contains_secret(content)
   return false
 end
 
+-- Helper function to get surrounding lines for a specific buffer and line
+---@param bufnr number
+---@param line_num number
+---@return table|nil
+local function get_surrounding_lines(bufnr, line_num)
+  if not vim.api.nvim_buf_is_valid(bufnr) then
+    return nil
+  end
+
+  local cfg = config
+  local lines_above = cfg.context.cursor_surrounding.lines_above or 3
+  local lines_below = cfg.context.cursor_surrounding.lines_below or 3
+
+  local start_line = math.max(1, line_num - lines_above)
+  local end_line = math.min(vim.api.nvim_buf_line_count(bufnr), line_num + lines_below)
+
+  local ok, lines = pcall(vim.api.nvim_buf_get_lines, bufnr, start_line - 1, end_line, false)
+  if not ok then
+    return nil
+  end
+
+  return {
+    lines = lines,
+    start_line = start_line,
+    end_line = end_line,
+    current_line = line_num,
+  }
+end
+
 M.context = {
   -- current file
   current_file = nil,
@@ -86,6 +164,7 @@ M.context = {
   selections = nil,
   linter_errors = nil,
   mentioned_subagents = nil,
+  vectorcode_snippets = nil,
 
   -- new context types
   marks = nil,
@@ -119,7 +198,16 @@ local function get_cache_ttl(key, default)
   if cfg.context and cfg.context.cache_ttl and cfg.context.cache_ttl[key] then
     return cfg.context.cache_ttl[key]
   end
-  return default or context_cache.DEFAULT_TTL
+  -- Longer defaults for expensive operations to reduce recomputation
+  local heavy_ttls = {
+    git_info = 10000, -- 10 seconds
+    lsp_context = 5000, -- 5 seconds
+    plugin_versions = 60000, -- 1 minute
+    vectorcode_snippets = 30000, -- 30 seconds
+    recent_buffers = 5000, -- 5 seconds
+    highlights = 5000, -- 5 seconds
+  }
+  return heavy_ttls[key] or default or context_cache.DEFAULT_TTL
 end
 
 function M.unload_attachments()
@@ -147,6 +235,7 @@ function M.unload_attachments()
   M.context.macros = nil
   M.context.terminal_buffers = nil
   M.context.session_duration = nil
+  M.context.vectorcode_snippets = nil
 end
 
 function M.load()
@@ -174,34 +263,169 @@ function M.load()
     M.add_selection(selection)
   end
 
-  -- Load new context types
+  -- Load lightweight context types immediately
   M.context.marks = M.get_marks()
   M.context.jumplist = M.get_jumplist()
-  M.context.recent_buffers = M.get_recent_buffers()
   M.context.undo_history = M.get_undo_history()
   M.context.windows_tabs = M.get_windows_tabs()
-  M.context.highlights = M.get_highlights()
   M.context.session_info = M.get_session_info()
   M.context.registers = M.get_registers()
   M.context.command_history = M.get_command_history()
   M.context.search_history = M.get_search_history()
   M.context.debug_data = M.get_debug_data()
-  M.context.lsp_context = M.get_lsp_context()
-  M.context.plugin_versions = M.get_plugin_versions()
-  M.context.git_info = M.get_git_info()
   M.context.fold_info = M.get_fold_info()
   M.context.cursor_surrounding = M.get_cursor_surrounding()
   M.context.quickfix_loclist = M.get_quickfix_loclist()
   M.context.macros = M.get_macros()
   M.context.terminal_buffers = M.get_terminal_buffers()
   M.context.session_duration = M.get_session_duration()
+
+  -- Setup chained autocmds for event-driven updates
+  -- M.setup_chained_autocmds()
+
+  -- Concurrency: Run independent heavy ops in parallel using multiple defers
+  -- Parallel group 1: LSP and Git (independent)
+  vim.defer_fn(function()
+    -- Use MCPHub for LSP context if enabled
+    local cfg = config
+    -- if cfg.context.mcphub.enabled and context_mcphub.is_available() then
+    --   context_mcphub
+    --     .get_lsp_diagnostics_mcphub()
+    --     :and_then(function(result)
+    --       -- Parse MCPHub diagnostics result and convert to OpenCode format
+    --       M.context.lsp_context = M.parse_mcphub_diagnostics(result)
+    --     end)
+    --     :catch(function(err)
+    --       if cfg.context.mcphub.fallback_to_native then
+    --         M.get_lsp_context():and_then(function(result)
+    --           M.context.lsp_context = result
+    --         end)
+    --       end
+    --     end)
+    -- else
+    --   M.get_lsp_context():and_then(function(result)
+    --     M.context.lsp_context = result
+    --   end)
+    -- end
+
+    M.get_git_info():and_then(function(result)
+      M.context.git_info = result
+    end)
+  end, 0)
+
+  -- Parallel group 2: Plugin versions and recent buffers (independent)
+  vim.defer_fn(function()
+    M.get_plugin_versions():and_then(function(result)
+      M.context.plugin_versions = result
+    end)
+    M.get_recent_buffers():and_then(function(result)
+      M.context.recent_buffers = result
+    end)
+  end, 0)
+
+  -- Vectorcode snippets (can chain from cursor_surrounding via autocmd)
+  vim.defer_fn(function()
+    M.get_vectorcode_snippets():and_then(function(result)
+      M.context.vectorcode_snippets = result
+    end)
+  end, 0)
+
+  -- Highlights (defer for UI responsiveness)
+  vim.defer_fn(function()
+    M.context.highlights = M.get_highlights()
+  end, 100) -- Slight delay for lightweightness
+
+  -- Save to cache
   cache.timestamp = now
-  cache.data = vim.deepcopy(M.context)
   cache.last_changedtick = current_changedtick
+  cache.data = vim.deepcopy(M.context)
+end
+
+function M.setup_chained_autocmds()
+  local augroup = vim.api.nvim_create_augroup('OpencodeContext', { clear = true })
+
+  -- Dependency map for chaining
+  local chains = {
+    BufEnter = {
+      { fn = M.get_current_file, next = { 'cursor_data', 'linter_errors' } },
+      { fn = M.get_cursor_data, deps = { 'current_file' } },
+      { fn = M.get_linter_errors, deps = { 'current_file' } },
+      { fn = M.get_selection, deps = { 'current_file' } },
+    },
+    LspAttach = {
+      { fn = M.get_lsp_context, deps = { 'current_file' } },
+    },
+    FileChangedShell = {
+      { fn = M.get_git_info, next = { 'recent_buffers' } },
+      { fn = M.get_recent_buffers, deps = { 'git_info' } },
+    },
+    CursorMoved = {
+      { fn = M.get_cursor_surrounding, next = { 'vectorcode_snippets' } },
+      { fn = M.get_vectorcode_snippets, deps = { 'cursor_surrounding' } },
+    },
+    WinEnter = {
+      { fn = M.get_highlights },
+    },
+    VimEnter = {
+      { fn = M.get_plugin_versions },
+    },
+    TextChanged = {
+      { fn = M.get_vectorcode_snippets },
+    },
+  }
+
+  for event, chain_list in pairs(chains) do
+    for _, step in ipairs(chain_list) do
+      vim.api.nvim_create_autocmd(event, {
+        group = augroup,
+        callback = function(args)
+          -- Check dependencies
+          if step.deps and not M.check_dependencies(step.deps) then
+            return
+          end
+          -- Run the function (Promise-based)
+          local promise = step.fn()
+          if promise then
+            promise
+              :and_then(function(result)
+                M.context[step.fn_name or 'unknown'] = result
+                -- Trigger next in chain if specified
+                if step.next then
+                  for _, next_fn in ipairs(step.next) do
+                    vim.defer_fn(function()
+                      M[next_fn]()
+                    end, 0)
+                  end
+                end
+              end)
+              :catch(function(err)
+                vim.notify('Context error in ' .. event .. ': ' .. err, vim.log.levels.ERROR)
+              end)
+          end
+        end,
+        nested = true,
+      })
+    end
+  end
+end
+
+-- Helper to check dependencies
+function M.check_dependencies(deps)
+  for _, dep in ipairs(deps) do
+    if dep == 'current_file' and not M.context.current_file then
+      return false
+    end
+    if dep == 'lsp_context' and not vim.lsp.get_active_clients() then
+      return false
+    end
+    -- Add more checks as needed
+  end
+  return true
 end
 
 function M.check_linter_errors()
-  local diagnostic_conf = config.context and config.context.diagnostics
+  local cfg = config
+  local diagnostic_conf = cfg.context and cfg.context.diagnostics
   if not diagnostic_conf then
     return nil
   end
@@ -288,7 +512,8 @@ end
 
 ---@param opts OpencodeContextConfig
 function M.delta_context(opts)
-  opts = opts or config.context
+  local cfg = config
+  opts = opts or cfg.context
   if opts.enabled == false then
     return {
       current_file = nil,
@@ -348,14 +573,8 @@ function M.delta_context(opts)
 end
 
 function M.get_current_file()
-  if
-    not (
-      config.context
-      and config.context.enabled
-      and config.context.current_file
-      and config.context.current_file.enabled
-    )
-  then
+  local ctx_cfg = config.context
+  if not (ctx_cfg and ctx_cfg.enabled and ctx_cfg.current_file and ctx_cfg.current_file.enabled) then
     return nil
   end
   local file = vim.fn.expand('%:p')
@@ -389,14 +608,8 @@ function M.get_current_file()
 end
 
 function M.get_current_cursor_data()
-  if
-    not (
-      config.context
-      and config.context.enabled
-      and config.context.cursor_data
-      and config.context.cursor_data.enabled
-    )
-  then
+  local cfg = config
+  if not (cfg.context and cfg.context.enabled and cfg.context.cursor_data and cfg.context.cursor_data.enabled) then
     return nil
   end
 
@@ -406,9 +619,8 @@ function M.get_current_cursor_data()
 end
 
 function M.get_current_selection()
-  if
-    not (config.context and config.context.enabled and config.context.selection and config.context.selection.enabled)
-  then
+  local cfg = config
+  if not (cfg.context and cfg.context.enabled and cfg.context.selection and cfg.context.selection.enabled) then
     return nil
   end
   -- Return nil if not in a visual mode
@@ -445,12 +657,13 @@ end
 
 -- Get marks (10 most recent)
 function M.get_marks()
-  if not (config.context and config.context.enabled and config.context.marks and config.context.marks.enabled) then
+  local cfg = config
+  if not (cfg.context and cfg.context.enabled and cfg.context.marks and cfg.context.marks.enabled) then
     return nil
   end
 
   local marks = vim.fn.getmarklist()
-  local limit = config.context.marks.limit or 10
+  local limit = cfg.context.marks.limit or 10
   local result = {}
 
   for i = 1, math.min(#marks, limit) do
@@ -471,9 +684,8 @@ end
 
 -- Get jumplist (last 10 jumps)
 function M.get_jumplist()
-  if
-    not (config.context and config.context.enabled and config.context.jumplist and config.context.jumplist.enabled)
-  then
+  local cfg = config
+  if not (cfg.context and cfg.context.enabled and cfg.context.jumplist and cfg.context.jumplist.enabled) then
     return nil
   end
 
@@ -481,7 +693,7 @@ function M.get_jumplist()
   if not ok or type(jumplist) ~= 'table' then
     return nil
   end
-  local limit = config.context.jumplist.limit or 10
+  local limit = cfg.context.jumplist.limit or 10
   local result = {}
 
   -- Get the most recent jumps
@@ -507,14 +719,8 @@ end
 
 -- Get undo history (last 10 branches/changesets)
 function M.get_undo_history()
-  if
-    not (
-      config.context
-      and config.context.enabled
-      and config.context.undo_history
-      and config.context.undo_history.enabled
-    )
-  then
+  local cfg = config
+  if not (cfg.context and cfg.context.enabled and cfg.context.undo_history and cfg.context.undo_history.enabled) then
     return nil
   end
 
@@ -523,7 +729,7 @@ function M.get_undo_history()
     return nil
   end
 
-  local limit = config.context.undo_history.limit or 10
+  local limit = cfg.context.undo_history.limit or 10
   local result = {}
 
   -- Get the most recent entries
@@ -567,14 +773,8 @@ end
 
 -- Get window and tab context
 function M.get_windows_tabs()
-  if
-    not (
-      config.context
-      and config.context.enabled
-      and config.context.windows_tabs
-      and config.context.windows_tabs.enabled
-    )
-  then
+  local cfg = config
+  if not (cfg.context and cfg.context.enabled and cfg.context.windows_tabs and cfg.context.windows_tabs.enabled) then
     return nil
   end
 
@@ -604,9 +804,8 @@ end
 
 -- Get buffer line highlights
 function M.get_highlights()
-  if
-    not (config.context and config.context.enabled and config.context.highlights and config.context.highlights.enabled)
-  then
+  local cfg = config
+  if not (cfg.context and cfg.context.enabled and cfg.context.highlights and cfg.context.highlights.enabled) then
     return nil
   end
 
@@ -652,14 +851,8 @@ end
 
 -- Get session information
 function M.get_session_info()
-  if
-    not (
-      config.context
-      and config.context.enabled
-      and config.context.session_info
-      and config.context.session_info.enabled
-    )
-  then
+  local cfg = config
+  if not (cfg.context and cfg.context.enabled and cfg.context.session_info and cfg.context.session_info.enabled) then
     return nil
   end
 
@@ -676,13 +869,12 @@ end
 
 -- Get registers
 function M.get_registers()
-  if
-    not (config.context and config.context.enabled and config.context.registers and config.context.registers.enabled)
-  then
+  local cfg = config
+  if not (cfg.context and cfg.context.enabled and cfg.context.registers and cfg.context.registers.enabled) then
     return nil
   end
 
-  local include = config.context.registers.include or { '"', '/', 'q' }
+  local include = cfg.context.registers.include or { '"', '/', 'q' }
   local result = {}
 
   for _, reg in ipairs(include) do
@@ -709,18 +901,14 @@ end
 
 -- Get command history
 function M.get_command_history()
+  local cfg = config
   if
-    not (
-      config.context
-      and config.context.enabled
-      and config.context.command_history
-      and config.context.command_history.enabled
-    )
+    not (cfg.context and cfg.context.enabled and cfg.context.command_history and cfg.context.command_history.enabled)
   then
     return nil
   end
 
-  local limit = config.context.command_history.limit or 5
+  local limit = cfg.context.command_history.limit or 5
   local result = {}
 
   -- Get the last N commands
@@ -736,18 +924,14 @@ end
 
 -- Get search history
 function M.get_search_history()
+  local cfg = config
   if
-    not (
-      config.context
-      and config.context.enabled
-      and config.context.search_history
-      and config.context.search_history.enabled
-    )
+    not (cfg.context and cfg.context.enabled and cfg.context.search_history and cfg.context.search_history.enabled)
   then
     return nil
   end
 
-  local limit = config.context.search_history.limit or 5
+  local limit = cfg.context.search_history.limit or 5
   local result = {}
 
   -- Get the last N searches
@@ -763,9 +947,8 @@ end
 
 -- Get debug data (nvim-dap)
 function M.get_debug_data()
-  if
-    not (config.context and config.context.enabled and config.context.debug_data and config.context.debug_data.enabled)
-  then
+  local cfg = config
+  if not (cfg.context and cfg.context.enabled and cfg.context.debug_data and cfg.context.debug_data.enabled) then
     return nil
   end
 
@@ -801,197 +984,219 @@ end
 
 -- Get LSP context
 function M.get_lsp_context()
-  if
-    not (
-      config.context
-      and config.context.enabled
-      and config.context.lsp_context
-      and config.context.lsp_context.enabled
-    )
-  then
-    return nil
+  local cfg = config
+  if not (cfg.context and cfg.context.enabled and cfg.context.lsp_context and cfg.context.lsp_context.enabled) then
+    return Promise.new():resolve(nil)
   end
 
-  local bufnr = vim.api.nvim_get_current_buf()
-  local result = {}
+  local promise = Promise.new()
+  vim.defer_fn(function()
+    local bufnr = vim.api.nvim_get_current_buf()
+    local result = {}
 
-  -- Get diagnostics with more details
-  local diagnostics = vim.diagnostic.get(bufnr) or {}
-  local limit = config.context.lsp_context.diagnostics_limit or 10
+    -- Get diagnostics with more details
+    local diagnostics = vim.diagnostic.get(bufnr) or {}
+    local limit = cfg.context.lsp_context.diagnostics_limit or 10
 
-  result.diagnostics = {}
-  for i = 1, math.min(#diagnostics, limit) do
-    local diag = diagnostics[i]
-    table.insert(result.diagnostics, {
-      line = diag.lnum,
-      col = diag.col,
-      severity = diag.severity,
-      message = diag.message,
-      source = diag.source,
-      code = diag.code,
-      user_data = vim.inspect(diag.user_data), -- Add variables/context if available
-    })
-  end
-
-  -- Get code actions if enabled
-  if config.context.lsp_context.code_actions then
-    result.code_actions_available = false
-    -- Note: Getting code actions is async, so we just note if LSP is available
-    local clients = vim.lsp.get_active_clients({ bufnr = bufnr })
-    if #clients > 0 then
-      result.code_actions_available = true
-      result.lsp_clients = {}
-      for _, client in ipairs(clients) do
-        table.insert(result.lsp_clients, {
-          name = client.name,
-          id = client.id,
-          root_dir = client.config.root_dir,
-        })
-      end
+    result.diagnostics = {}
+    for i = 1, math.min(#diagnostics, limit) do
+      local diag = diagnostics[i]
+      table.insert(result.diagnostics, {
+        line = diag.lnum,
+        col = diag.col,
+        severity = diag.severity,
+        message = diag.message,
+        source = diag.source,
+        code = diag.code,
+        user_data = vim.inspect(diag.user_data), -- Add variables/context if available
+      })
     end
-  end
 
-  -- Get document symbols
-  local params = vim.lsp.util.make_position_params()
-  local ok_sym, symbols_resp = pcall(vim.lsp.buf_request_sync, bufnr, 'textDocument/documentSymbol', params, 1000)
-  if ok_sym and symbols_resp and symbols_resp[1] and symbols_resp[1].result then
-    local symbols = symbols_resp[1].result
-    local flat_symbols = {}
-    local function flatten(s)
-      -- Filter out structural noise symbols (e.g., "[1]", "[2]", etc.)
-      if s.name and not s.name:match('^%[%d+%]$') then
-        table.insert(flat_symbols, {
-          name = s.name,
-          kind = s.kind,
-          range = s.range or { start = { 0, 0 }, ['end'] = { 0, 0 } },
-          detail = s.detail or '',
-        })
-      end
-      if s.children then
-        for _, c in ipairs(s.children) do
-          flatten(c)
+    -- Get code actions if enabled
+    if cfg.context.lsp_context.code_actions then
+      result.code_actions_available = false
+      -- Note: Getting code actions is async, so we just note if LSP is available
+      local clients = vim.lsp.get_active_clients({ bufnr = bufnr })
+      if #clients > 0 then
+        result.code_actions_available = true
+        result.lsp_clients = {}
+        for _, client in ipairs(clients) do
+          table.insert(result.lsp_clients, {
+            name = client.name,
+            id = client.id,
+            root_dir = client.config.root_dir,
+          })
         end
       end
     end
-    for _, s in ipairs(symbols) do
-      flatten(s)
-    end
-    if #flat_symbols > 20 then
-      flat_symbols = vim.list_slice(flat_symbols, 1, 20)
-    end
-    result.symbols = flat_symbols
-  end
 
-  return (#result.diagnostics > 0 or result.code_actions_available or (result.symbols and #result.symbols > 0))
-      and result
-    or nil
+    -- Get document symbols
+    local params = vim.lsp.util.make_position_params()
+    local ok_sym, symbols_resp = pcall(vim.lsp.buf_request_sync, bufnr, 'textDocument/documentSymbol', params, 1000)
+    if ok_sym and symbols_resp and symbols_resp[1] and symbols_resp[1].result then
+      local symbols = symbols_resp[1].result
+      local flat_symbols = {}
+      local function flatten(s)
+        -- Filter out structural noise symbols (e.g., "[1]", "[2]", etc.)
+        if s.name and not s.name:match('^%[%d+%]$') then
+          table.insert(flat_symbols, {
+            name = s.name,
+            kind = s.kind,
+            range = s.range or { start = { 0, 0 }, ['end'] = { 0, 0 } },
+            detail = s.detail or '',
+          })
+        end
+        if s.children then
+          for _, c in ipairs(s.children) do
+            flatten(c)
+          end
+        end
+      end
+      for _, s in ipairs(symbols) do
+        flatten(s)
+      end
+      if #flat_symbols > 20 then
+        flat_symbols = vim.list_slice(flat_symbols, 1, 20)
+      end
+      result.symbols = flat_symbols
+    end
+
+    local final_result = (
+      #result.diagnostics > 0
+      or result.code_actions_available
+      or (result.symbols and #result.symbols > 0)
+    )
+        and result
+      or nil
+    promise:resolve(final_result)
+  end, 0)
+  return promise
 end
 
--- Get Git information
-function M.get_git_info()
-  if
-    not (config.context and config.context.enabled and config.context.git_info and config.context.git_info.enabled)
-  then
-    return nil
+-- Get Git information (async)
+---@param callback function(result: table|nil)
+function M.get_git_info(callback)
+  local cfg = config
+  if not (cfg.context and cfg.context.enabled and cfg.context.git_info and cfg.context.git_info.enabled) then
+    if callback then
+      callback(nil)
+    end
+    return Promise.new():resolve(nil)
   end
 
-  -- Check cache first (5 second TTL for git info)
+  -- Check cache first
   local cache_key = 'git_info'
   local cached = context_cache.get(cache_key, get_cache_ttl('git_info', 5000))
   if cached then
-    return cached
-  end
-
-  local result = {}
-
-  -- Get current branch
-  local branch_ok, branch = pcall(vim.fn.systemlist, 'git rev-parse --abbrev-ref HEAD 2>/dev/null')
-  if branch_ok and branch[1] and branch[1] ~= '' then
-    result.branch = branch[1]
-  else
-    return nil
-  end
-
-  -- Get HEAD commit SHA (short form)
-  local sha_ok, sha = pcall(vim.fn.systemlist, 'git rev-parse --short HEAD 2>/dev/null')
-  if sha_ok and sha[1] and sha[1] ~= '' then
-    result.head_sha = sha[1]
-  end
-
-  -- Check if working tree is dirty
-  local status_ok, status = pcall(vim.fn.systemlist, 'git status --porcelain 2>/dev/null')
-  if status_ok and status then
-    result.is_dirty = #status > 0
-
-    -- Count staged and unstaged changes
-    local staged_count = 0
-    local unstaged_count = 0
-    for _, line in ipairs(status) do
-      if line and line ~= '' then
-        local index_status = line:sub(1, 1)
-        local work_status = line:sub(2, 2)
-
-        -- Staged changes (index column not space or ?)
-        if index_status ~= ' ' and index_status ~= '?' then
-          staged_count = staged_count + 1
-        end
-
-        -- Unstaged changes (work tree column not space)
-        if work_status ~= ' ' then
-          unstaged_count = unstaged_count + 1
-        end
-      end
+    if callback then
+      callback(cached)
     end
-
-    if staged_count > 0 then
-      result.staged_changes = staged_count
-    end
-    if unstaged_count > 0 then
-      result.unstaged_changes = unstaged_count
-    end
+    return Promise.new():resolve(cached)
   end
 
-  -- Get file diff
+  local promise = Promise.new()
+
+  -- Run git commands in parallel using context_cache.parallel
+  local tasks = {
+    { name = 'branch', cmd = { 'git', 'rev-parse', '--abbrev-ref', 'HEAD' } },
+    { name = 'sha', cmd = { 'git', 'rev-parse', '--short', 'HEAD' } },
+    { name = 'status', cmd = { 'git', 'status', '--porcelain' } },
+    { name = 'log', cmd = { 'git', 'log', '--oneline', '-n', tostring(cfg.context.git_info.changes_limit or 5) } },
+  }
+
+  -- Add file diff if applicable
   local current_file = vim.fn.expand('%:p')
   if current_file and current_file ~= '' and is_in_cwd(current_file) then
-    local diff_limit = config.context.git_info.diff_limit or 10
-    local diff_ok, diff = pcall(vim.fn.systemlist, string.format('git diff HEAD -- %s 2>/dev/null', current_file))
-    if diff_ok and diff then
-      result.file_diff = {}
-      for i = 1, math.min(#diff, diff_limit) do
-        table.insert(result.file_diff, diff[i])
+    table.insert(tasks, {
+      name = 'diff',
+      cmd = { 'git', 'diff', 'HEAD', '--', current_file },
+    })
+  end
+
+  context_cache.parallel(tasks, function(results)
+    if not results.branch or results.branch == '' then
+      promise:resolve(nil)
+      if callback then
+        callback(nil)
+      end
+      return
+    end
+
+    local result = {
+      branch = results.branch,
+      head_sha = results.sha,
+      is_dirty = results.status and #vim.split(results.status, '\n', { plain = true }) > 0,
+    }
+
+    -- Parse status for staged/unstaged counts
+    if results.status then
+      local staged_count = 0
+      local unstaged_count = 0
+      for line in results.status:gmatch('[^\n]+') do
+        if line ~= '' then
+          local index_status = line:sub(1, 1)
+          local work_status = line:sub(2, 2)
+          if index_status ~= ' ' and index_status ~= '?' then
+            staged_count = staged_count + 1
+          end
+          if work_status ~= ' ' then
+            unstaged_count = unstaged_count + 1
+          end
+        end
+      end
+      if staged_count > 0 then
+        result.staged_changes = staged_count
+      end
+      if unstaged_count > 0 then
+        result.unstaged_changes = unstaged_count
       end
     end
-  end
 
-  -- Get recent changes
-  local changes_limit = config.context.git_info.changes_limit or 5
-  local log_ok, log = pcall(vim.fn.systemlist, string.format('git log --oneline -n %d 2>/dev/null', changes_limit))
-  if log_ok and log then
-    result.recent_changes = log
-  end
+    -- Parse diff
+    if results.diff then
+      local diff_limit = cfg.context.git_info.diff_limit or 10
+      result.file_diff = {}
+      local lines = vim.split(results.diff, '\n', { plain = true })
+      for i = 1, math.min(#lines, diff_limit) do
+        table.insert(result.file_diff, lines[i])
+      end
+    end
 
-  -- Cache the result
-  context_cache.set(cache_key, result)
-  return result
+    -- Parse log
+    if results.log then
+      result.recent_changes = vim.split(results.log, '\n', { plain = true })
+    end
+
+    -- Cache and resolve
+    context_cache.set(cache_key, result)
+    promise:resolve(result)
+    if callback then
+      callback(result)
+    end
+  end, { timeout = 5000 })
+
+  return promise
 end
 
--- Get plugin versions from lazy-lock.json
-function M.get_plugin_versions()
+-- Get plugin versions from lazy-lock.json (async)
+---@param callback function(result: table|nil)
+function M.get_plugin_versions(callback)
+  local cfg = config
   if
-    not (
-      config.context
-      and config.context.enabled
-      and config.context.plugin_versions
-      and config.context.plugin_versions.enabled
-    )
+    not (cfg.context and cfg.context.enabled and cfg.context.plugin_versions and cfg.context.plugin_versions.enabled)
   then
-    return nil
+    if callback then
+      callback(nil)
+    end
+    return Promise.new():resolve(nil)
   end
 
   local lock_path = vim.fn.stdpath('data') .. '/lazy/lazy-lock.json'
   if vim.fn.filereadable(lock_path) ~= 1 then
-    return nil
+    if callback then
+      callback(nil)
+    end
+    return Promise.new():resolve(nil)
   end
 
   -- Check cache first with file modification time
@@ -1003,48 +1208,68 @@ function M.get_plugin_versions()
   local cache_key_with_mtime = cache_key .. '_' .. lock_mtime
   local cached = context_cache.get(cache_key_with_mtime, get_cache_ttl('plugin_versions', 60000))
   if cached then
-    return cached
+    if callback then
+      callback(cached)
+    end
+    return Promise.new():resolve(cached)
   end
+
+  local promise = Promise.new()
 
   -- Clear old cache entries for this section
   context_cache.clear(cache_key)
 
-  local ok, content = pcall(vim.fn.readfile, lock_path)
-  if not ok then
-    return nil
-  end
-
-  local ok_decode, data = pcall(vim.json.decode, table.concat(content, '\n'))
-  if not ok_decode or type(data) ~= 'table' or not data.packages then
-    return nil
-  end
-
-  local result = {}
-  local limit = config.context.plugin_versions.limit or 20
-  local count = 0
-
-  for name, info in pairs(data.packages) do
-    if count >= limit then
-      break
+  -- Read file asynchronously
+  vim.defer_fn(function()
+    local ok, content = pcall(vim.fn.readfile, lock_path)
+    if not ok then
+      promise:resolve(nil)
+      if callback then
+        callback(nil)
+      end
+      return
     end
-    table.insert(result, {
-      name = name,
-      version = info.version or 'unknown',
-      commit = info.commit and string.sub(info.commit, 1, 8) or 'none',
-    })
-    count = count + 1
-  end
 
-  local final_result = #result > 0 and result or nil
-  context_cache.set(cache_key_with_mtime, final_result)
-  return final_result
+    local ok_decode, data = pcall(vim.json.decode, table.concat(content, '\n'))
+    if not ok_decode or type(data) ~= 'table' or not data.packages then
+      promise:resolve(nil)
+      if callback then
+        callback(nil)
+      end
+      return
+    end
+
+    local result = {}
+    local limit = cfg.context.plugin_versions.limit or 20
+    local count = 0
+
+    for name, info in pairs(data.packages) do
+      if count >= limit then
+        break
+      end
+      table.insert(result, {
+        name = name,
+        version = info.version or 'unknown',
+        commit = info.commit and string.sub(info.commit, 1, 8) or 'none',
+      })
+      count = count + 1
+    end
+
+    local final_result = #result > 0 and result or nil
+    context_cache.set(cache_key_with_mtime, final_result)
+    promise:resolve(final_result)
+    if callback then
+      callback(final_result)
+    end
+  end, 0)
+
+  return promise
 end
 
 -- Get fold information
 function M.get_fold_info()
-  if
-    not (config.context and config.context.enabled and config.context.fold_info and config.context.fold_info.enabled)
-  then
+  local cfg = config
+  if not (cfg.context and cfg.context.enabled and cfg.context.fold_info and cfg.context.fold_info.enabled) then
     return nil
   end
 
@@ -1072,19 +1297,20 @@ end
 
 -- Get cursor surrounding context
 function M.get_cursor_surrounding()
+  local cfg = config
   if
     not (
-      config.context
-      and config.context.enabled
-      and config.context.cursor_surrounding
-      and config.context.cursor_surrounding.enabled
+      cfg.context
+      and cfg.context.enabled
+      and cfg.context.cursor_surrounding
+      and cfg.context.cursor_surrounding.enabled
     )
   then
     return nil
   end
 
-  local lines_above = config.context.cursor_surrounding.lines_above or 3
-  local lines_below = config.context.cursor_surrounding.lines_below or 3
+  local lines_above = cfg.context.cursor_surrounding.lines_above or 3
+  local lines_below = cfg.context.cursor_surrounding.lines_below or 3
 
   local current_line = vim.fn.line('.')
   local start_line = math.max(1, current_line - lines_above)
@@ -1105,18 +1331,14 @@ end
 
 -- Get quickfix and location list
 function M.get_quickfix_loclist()
+  local cfg = config
   if
-    not (
-      config.context
-      and config.context.enabled
-      and config.context.quickfix_loclist
-      and config.context.quickfix_loclist.enabled
-    )
+    not (cfg.context and cfg.context.enabled and cfg.context.quickfix_loclist and cfg.context.quickfix_loclist.enabled)
   then
     return nil
   end
 
-  local limit = config.context.quickfix_loclist.limit or 5
+  local limit = cfg.context.quickfix_loclist.limit or 5
   local result = {}
 
   -- Get quickfix list
@@ -1152,11 +1374,12 @@ end
 
 -- Get macros
 function M.get_macros()
-  if not (config.context and config.context.enabled and config.context.macros and config.context.macros.enabled) then
+  local cfg = config
+  if not (cfg.context and cfg.context.enabled and cfg.context.macros and cfg.context.macros.enabled) then
     return nil
   end
 
-  local register = config.context.macros.register or 'q'
+  local register = cfg.context.macros.register or 'q'
   local macro = vim.fn.getreg(register)
 
   if macro and macro ~= '' then
@@ -1171,13 +1394,9 @@ end
 
 -- Get terminal buffers
 function M.get_terminal_buffers()
+  local cfg = config
   if
-    not (
-      config.context
-      and config.context.enabled
-      and config.context.terminal_buffers
-      and config.context.terminal_buffers.enabled
-    )
+    not (cfg.context and cfg.context.enabled and cfg.context.terminal_buffers and cfg.context.terminal_buffers.enabled)
   then
     return nil
   end
@@ -1207,13 +1426,9 @@ end
 
 -- Get session duration
 function M.get_session_duration()
+  local cfg = config
   if
-    not (
-      config.context
-      and config.context.enabled
-      and config.context.session_duration
-      and config.context.session_duration.enabled
-    )
+    not (cfg.context and cfg.context.enabled and cfg.context.session_duration and cfg.context.session_duration.enabled)
   then
     return nil
   end
@@ -1227,6 +1442,137 @@ function M.get_session_duration()
     duration_minutes = math.floor(duration_seconds / 60),
     duration_hours = math.floor(duration_seconds / 3600),
   }
+end
+
+-- Get VectorCode snippets (async)
+---@param callback function(result: table|nil)
+function M.get_vectorcode_snippets(callback)
+  local cfg = config
+  if
+    not (
+      cfg.context
+      and cfg.context.enabled
+      and cfg.context.vectorcode_snippets
+      and cfg.context.vectorcode_snippets.enabled
+    )
+  then
+    if callback then
+      callback(nil)
+    end
+    return Promise.new():resolve(nil)
+  end
+
+  local promise = Promise.new()
+
+  -- Check if VectorCode is available
+  local ok, vectorcode = pcall(require, 'vectorcode')
+  if not ok then
+    promise:resolve(nil)
+    if callback then
+      callback(nil)
+    end
+    return promise
+  end
+
+  -- Get current file and cursor data for better query
+  local current_file = M.get_current_file()
+  local cursor_data = M.get_current_cursor_data()
+  local current_selection = M.get_current_selection()
+
+  if not current_file or not current_file.path then
+    promise:resolve(nil)
+    if callback then
+      callback(nil)
+    end
+    return promise
+  end
+
+  -- Build a more relevant query based on context
+  local query_strategy = cfg.context.vectorcode_snippets.query_strategy or 'auto'
+  local query_parts = {}
+
+  if
+    query_strategy == 'selection'
+    and current_selection
+    and current_selection.text
+    and current_selection.text:match('%S')
+  then
+    table.insert(query_parts, current_selection.text)
+  elseif
+    query_strategy == 'line'
+    and cursor_data
+    and cursor_data.line_content
+    and cursor_data.line_content:match('%S')
+  then
+    table.insert(query_parts, cursor_data.line_content)
+  elseif query_strategy == 'filename' then
+    table.insert(query_parts, vim.fn.fnamemodify(current_file.path, ':t'))
+    if current_file.filetype then
+      table.insert(query_parts, current_file.filetype)
+    end
+  else -- 'auto' or fallback
+    -- Use current selection if available (most specific)
+    if current_selection and current_selection.text and current_selection.text:match('%S') then
+      table.insert(query_parts, current_selection.text)
+    elseif cursor_data and cursor_data.line_content and cursor_data.line_content:match('%S') then
+      -- Use current line content
+      table.insert(query_parts, cursor_data.line_content)
+    else
+      -- Fallback to filename + filetype
+      table.insert(query_parts, vim.fn.fnamemodify(current_file.path, ':t'))
+      if current_file.filetype then
+        table.insert(query_parts, current_file.filetype)
+      end
+    end
+  end
+
+  -- Add filetype for better context if not already included and strategy allows
+  if
+    current_file.filetype
+    and query_strategy ~= 'selection'
+    and not vim.tbl_contains(query_parts, current_file.filetype)
+  then
+    table.insert(query_parts, current_file.filetype)
+  end
+
+  local query = table.concat(query_parts, ' ')
+  local n = cfg.context.vectorcode_snippets.n or 3
+
+  -- Ensure query is not empty and not too long
+  if query == '' or #query > 500 then
+    promise:resolve(nil)
+    if callback then
+      callback(nil)
+    end
+    return promise
+  end
+
+  -- Query VectorCode asynchronously
+  vim.defer_fn(function()
+    local ok_query, results = pcall(vectorcode.query, query, { n = n })
+    if not ok_query or not results then
+      promise:resolve(nil)
+      if callback then
+        callback(nil)
+      end
+      return
+    end
+
+    -- Format results
+    local snippets = {}
+    for _, result in ipairs(results) do
+      table.insert(snippets, {
+        path = result.path,
+        content = result.document,
+      })
+    end
+
+    promise:resolve(#snippets > 0 and snippets or nil)
+    if callback then
+      callback(#snippets > 0 and snippets or nil)
+    end
+  end, 0)
+  return promise
 end
 
 local function format_file_part(path, prompt)
@@ -1304,15 +1650,16 @@ end
 ---@param opts? OpencodeContextConfig|nil
 ---@return OpencodeMessagePart[]
 function M.format_message(prompt, opts)
-  opts = opts or config.context
+  local cfg = config
+  opts = opts or cfg.context
   local context = M.delta_context(opts)
   context.prompt = prompt
 
   local parts = { { type = 'text', text = prompt } }
 
   -- recent_buffers synthetic context
-  if config.context and config.context.recent_buffers and config.context.recent_buffers.enabled then
-    local ok, recent = pcall(M.get_recent_buffers, prompt, config.context.recent_buffers)
+  if cfg.context and cfg.context.recent_buffers and cfg.context.recent_buffers.enabled then
+    local ok, recent = pcall(M.get_recent_buffers, prompt, cfg.context.recent_buffers)
     if ok and recent and #recent > 0 then
       for _, rb in ipairs(recent) do
         table.insert(parts, rb)
@@ -1423,6 +1770,10 @@ function M.format_message(prompt, opts)
 
   if context.session_duration then
     table.insert(parts, format_context_part('session_duration', context.session_duration))
+  end
+
+  if context.vectorcode_snippets then
+    table.insert(parts, format_context_part('vectorcode_snippets', context.vectorcode_snippets))
   end
 
   return parts
@@ -1599,212 +1950,226 @@ end
 ---@param opts? { enabled: boolean, symbols_only: boolean, max: number }
 ---@return OpencodeMessagePart[]|table[]|nil
 function M.get_recent_buffers(prompt, opts)
-  -- Legacy API: called with no arguments, uses config.context.recent_buffers
-  if prompt == nil and opts == nil then
-    if
-      not (
-        config.context
-        and config.context.enabled
-        and config.context.recent_buffers
-        and config.context.recent_buffers.enabled
-      )
-    then
-      return nil
-    end
-
-    local buffers = vim.fn.getbufinfo({ buflisted = true })
-    local limit = config.context.recent_buffers.limit or 10
-
-    -- Sort by last used time
-    table.sort(buffers, function(a, b)
-      return (a.lastused or 0) > (b.lastused or 0)
-    end)
-
-    local result = {}
-    for i = 1, math.min(#buffers, limit) do
-      local buf = buffers[i]
-      local buf_entry = {
-        bufnr = buf.bufnr,
-        name = filter_path_privacy(buf.name),
-        lastused = buf.lastused,
-        changed = buf.changed == 1,
-      }
-
-      -- Add filetype if available (only for valid buffers)
-      if vim.api.nvim_buf_is_valid(buf.bufnr) then
-        local filetype = vim.bo[buf.bufnr].filetype
-        if filetype and filetype ~= '' then
-          buf_entry.filetype = filetype
-        end
-
-        -- Add LSP client names if available
-        local clients = vim.lsp.get_active_clients({ bufnr = buf.bufnr })
-        if #clients > 0 then
-          buf_entry.lsp_clients = {}
-          for _, client in ipairs(clients) do
-            table.insert(buf_entry.lsp_clients, client.name)
-          end
-        end
-      end
-
-      table.insert(result, buf_entry)
-    end
-
-    local recent_conf = config.context.recent_buffers
-    if recent_conf and recent_conf.symbols_only then
-      for _, buf_entry in ipairs(result) do
-        local bufnr = buf_entry.bufnr
-
-        -- Skip if buffer is not valid
-        if not vim.api.nvim_buf_is_valid(bufnr) then
-          goto continue
-        end
-
-        local line_count = vim.api.nvim_buf_line_count(bufnr)
-        if line_count <= 100 then
-          goto continue
-        end
-
-        local clients = vim.lsp.get_active_clients({ bufnr = bufnr })
-        if #clients == 0 then
-          goto continue
-        end
-
-        if vim.api.nvim_buf_get_option(bufnr, 'readonly') or vim.bo[bufnr].buftype ~= '' then
-          goto continue
-        end
-
-        -- Cache LSP symbols per buffer with changedtick
-        local changedtick = vim.b[bufnr].changedtick or 0
-        local cache_key = 'lsp_symbols_' .. bufnr .. '_' .. changedtick
-        local cached_symbols = context_cache.get(cache_key, get_cache_ttl('lsp_symbols', 10000))
-
-        if cached_symbols then
-          buf_entry.symbols = cached_symbols
-        else
-          local ok, resp = pcall(vim.lsp.buf_request_sync, bufnr, 'textDocument/documentSymbol', {}, 1000)
-          if ok and resp and resp[1] and resp[1].result then
-            local symbols = resp[1].result
-            local flat = {}
-            local function flatten(s)
-              -- Filter out structural noise symbols (e.g., "[1]", "[2]", etc.)
-              -- These are often placeholder symbols from some LSP servers
-              if s.name and not s.name:match('^%[%d+%]$') then
-                table.insert(flat, {
-                  name = s.name,
-                  kind = s.kind,
-                  range = s.range or { start = { 0, 0 }, ['end'] = { 0, 0 } },
-                  detail = s.detail or '',
-                })
-              end
-              if s.children then
-                for _, c in ipairs(s.children) do
-                  flatten(c)
-                end
-              end
-            end
-            for _, s in ipairs(symbols) do
-              flatten(s)
-            end
-            if #flat > 20 then
-              flat = vim.list_slice(flat, 1, 20)
-            end
-            buf_entry.symbols = flat
-            context_cache.set(cache_key, flat)
-          end
-        end
-        ::continue::
-      end
-    end
-
-    return #result > 0 and result or nil
-  end
+  local promise = Promise.new()
 
   -- New API: called with prompt and opts
   if not opts or not opts.enabled then
-    return nil
+    promise:resolve(nil)
+    return promise
   end
 
-  local bufs = vim.api.nvim_list_bufs()
-  local recent = {}
+  -- Legacy API: called with no arguments, uses config.context.recent_buffers
+  if prompt == nil and opts == nil then
+    local cfg = config
+    if
+      not (cfg.context and cfg.context.enabled and cfg.context.recent_buffers and cfg.context.recent_buffers.enabled)
+    then
+      promise:resolve(nil)
+      return promise
+    end
 
-  -- Collect candidate buffers (MRU ordering approximation by number)
-  for _, b in ipairs(bufs) do
-    if is_valid_buffer(b) then
-      local line_count = vim.api.nvim_buf_line_count(b)
-      if line_count > 100 then
-        local clients = vim.lsp.get_active_clients({ bufnr = b })
-        if #clients > 0 then
-          table.insert(recent, { bufnr = b, line_count = line_count })
+    vim.defer_fn(function()
+      local buffers = vim.fn.getbufinfo({ buflisted = true })
+      local limit = cfg.context.recent_buffers.limit or 10
+
+      -- Sort by last used time
+      table.sort(buffers, function(a, b)
+        return (a.lastused or 0) > (b.lastused or 0)
+      end)
+
+      local result = {}
+      local current_bufnr = vim.fn.bufnr()
+      for i = 1, math.min(#buffers, limit) do
+        local buf = buffers[i]
+        local buf_entry = {
+          bufnr = buf.bufnr,
+          name = filter_path_privacy(buf.name),
+          lastused = buf.lastused,
+          changed = buf.changed == 1,
+        }
+
+        -- Add filetype if available (only for valid buffers)
+        if vim.api.nvim_buf_is_valid(buf.bufnr) then
+          local filetype = vim.bo[buf.bufnr].filetype
+          if filetype and filetype ~= '' then
+            buf_entry.filetype = filetype
+          end
+
+          -- Add LSP client names if available
+          local clients = vim.lsp.get_active_clients({ bufnr = buf.bufnr })
+          if #clients > 0 then
+            buf_entry.lsp_clients = {}
+            for _, client in ipairs(clients) do
+              table.insert(buf_entry.lsp_clients, client.name)
+            end
+          end
+
+          -- Add cursor_surrounding if this is the current buffer
+          if buf.bufnr == current_bufnr then
+            local current_line = vim.fn.line('.')
+            buf_entry.cursor_surrounding = get_surrounding_lines(buf.bufnr, current_line)
+          end
+        end
+
+        table.insert(result, buf_entry)
+      end
+
+      local recent_conf = cfg.context.recent_buffers
+      if recent_conf and recent_conf.symbols_only then
+        for _, buf_entry in ipairs(result) do
+          local bufnr = buf_entry.bufnr
+
+          -- Skip if buffer is not valid
+          if not vim.api.nvim_buf_is_valid(bufnr) then
+            goto continue
+          end
+
+          local line_count = vim.api.nvim_buf_line_count(bufnr)
+          if line_count <= 100 then
+            goto continue
+          end
+
+          local clients = vim.lsp.get_active_clients({ bufnr = bufnr })
+          if #clients == 0 then
+            goto continue
+          end
+
+          if vim.api.nvim_buf_get_option(bufnr, 'readonly') or vim.bo[bufnr].buftype ~= '' then
+            goto continue
+          end
+
+          -- Cache LSP symbols per buffer with changedtick
+          local changedtick = vim.b[bufnr].changedtick or 0
+          local cache_key = 'lsp_symbols_' .. bufnr .. '_' .. changedtick
+          local cached_symbols = context_cache.get(cache_key, get_cache_ttl('lsp_symbols', 10000))
+
+          if cached_symbols then
+            buf_entry.symbols = cached_symbols
+          else
+            local ok, resp = pcall(vim.lsp.buf_request_sync, bufnr, 'textDocument/documentSymbol', {}, 1000)
+            if ok and resp and resp[1] and resp[1].result then
+              local symbols = resp[1].result
+              local flat = {}
+              local function flatten(s)
+                -- Filter out structural noise symbols (e.g., "[1]", "[2]", etc.)
+                -- These are often placeholder symbols from some LSP servers
+                if s.name and not s.name:match('^%[%d+%]$') then
+                  table.insert(flat, {
+                    name = s.name,
+                    kind = s.kind,
+                    range = s.range or { start = { 0, 0 }, ['end'] = { 0, 0 } },
+                    detail = s.detail or '',
+                  })
+                end
+                if s.children then
+                  for _, c in ipairs(s.children) do
+                    flatten(c)
+                  end
+                end
+              end
+              for _, s in ipairs(symbols) do
+                flatten(s)
+              end
+              if #flat > 20 then
+                flat = vim.list_slice(flat, 1, 20)
+              end
+              buf_entry.symbols = flat
+              context_cache.set(cache_key, flat)
+            end
+          end
+          ::continue::
+        end
+      end
+
+      promise:resolve(#result > 0 and result or nil)
+    end, 0)
+    return promise
+  end
+
+  vim.defer_fn(function()
+    local bufs = vim.api.nvim_list_bufs()
+    local recent = {}
+
+    -- Collect candidate buffers (MRU ordering approximation by number)
+    for _, b in ipairs(bufs) do
+      if is_valid_buffer(b) then
+        local line_count = vim.api.nvim_buf_line_count(b)
+        if line_count > 100 then
+          local clients = vim.lsp.get_active_clients({ bufnr = b })
+          if #clients > 0 then
+            table.insert(recent, { bufnr = b, line_count = line_count })
+          end
         end
       end
     end
-  end
 
-  if #recent == 0 then
-    return nil
-  end
+    if #recent == 0 then
+      promise:resolve(nil)
+      return
+    end
 
-  table.sort(recent, function(a, b)
-    return a.bufnr > b.bufnr -- crude MRU heuristic
-  end)
+    table.sort(recent, function(a, b)
+      return a.bufnr > b.bufnr -- crude MRU heuristic
+    end)
 
-  local max_items = math.max(1, opts.max or 5)
-  local parts = {}
-  for i = 1, math.min(#recent, max_items) do
-    local b = recent[i].bufnr
-    local path = vim.api.nvim_buf_get_name(b)
-    local rel_path = vim.fn.fnamemodify(path, ':~:.')
-    local mention = '@' .. rel_path
-    local pos = prompt and prompt:find(mention)
-    pos = pos and pos - 1 or 0
+    local max_items = math.max(1, opts.max or 5)
+    local parts = {}
+    for i = 1, math.min(#recent, max_items) do
+      local b = recent[i].bufnr
+      local path = vim.api.nvim_buf_get_name(b)
+      local rel_path = vim.fn.fnamemodify(path, ':~:.')
+      local mention = '@' .. rel_path
+      local pos = prompt and prompt:find(mention)
+      pos = pos and pos - 1 or 0
 
-    local symbol_list
-    if opts.symbols_only then
-      local symbols = fetch_document_symbols(b)
-      if symbols then
-        local flat = flatten_symbols(symbols)
-        local names = {}
-        for _, s in ipairs(flat) do
-          table.insert(names, s.name)
+      local symbol_list
+      if opts.symbols_only then
+        local symbols = fetch_document_symbols(b)
+        if symbols then
+          local flat = flatten_symbols(symbols)
+          local names = {}
+          for _, s in ipairs(flat) do
+            table.insert(names, s.name)
+          end
+          symbol_list = dedupe_symbol_names(names)
         end
-        symbol_list = dedupe_symbol_names(names)
+        -- Guarantee a symbols array exists (empty if none found) for a stable contract
+        if not symbol_list then
+          symbol_list = {}
+        end
       end
-      -- Guarantee a symbols array exists (empty if none found) for a stable contract
-      if not symbol_list then
-        symbol_list = {}
+
+      local content
+      if not opts.symbols_only then
+        local first_lines = vim.api.nvim_buf_get_lines(b, 0, math.min(200, vim.api.nvim_buf_line_count(b)), false)
+        content = table.concat(first_lines, '\n')
       end
-    end
 
-    local content
-    if not opts.symbols_only then
-      local first_lines = vim.api.nvim_buf_get_lines(b, 0, math.min(200, vim.api.nvim_buf_line_count(b)), false)
-      content = table.concat(first_lines, '\n')
-    end
-
-    local data = {
-      context_type = 'recent-buffer',
-      path = path,
-      relative = rel_path,
-      line_count = recent[i].line_count,
-      symbols = symbol_list,
-      preview = content and ('```\n' .. content .. '\n```') or nil,
-    }
-
-    local part = {
-      type = 'text',
-      text = vim.json.encode(data),
-      synthetic = true,
-      source = {
+      local data = {
+        context_type = 'recent-buffer',
         path = path,
-        type = 'file',
-        text = { start = pos, value = mention, ['end'] = pos + #mention - 1 },
-      },
-    }
-    table.insert(parts, part)
-  end
+        relative = rel_path,
+        line_count = recent[i].line_count,
+        symbols = symbol_list,
+        preview = content and ('```\n' .. content .. '\n```') or nil,
+      }
 
-  return parts
+      local part = {
+        type = 'text',
+        text = vim.json.encode(data),
+        synthetic = true,
+        source = {
+          path = path,
+          type = 'file',
+          text = { start = pos, value = mention, ['end'] = pos + #mention - 1 },
+        },
+      }
+      table.insert(parts, part)
+    end
+
+    promise:resolve(parts)
+  end, 0)
+  return promise
 end
 
 -- Setup cache invalidation autocmds

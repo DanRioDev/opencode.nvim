@@ -142,7 +142,7 @@ end
 ---@param messages Message[] All messages in the session
 ---@param revert_index number Index of the message where revert occurred
 ---@param revert_info SessionRevertInfo Revert information
----@return {messages: number, tool_calls: number, files: table<string, {additions: number, deletions: number}>}
+---@return {messages: number, tool_calls: number, files: {additions: number, deletions: number}}
 function M._calculate_revert_stats(messages, revert_index, revert_info)
   local stats = {
     messages = 0,
@@ -359,6 +359,7 @@ end
 ---@param title? string Optional title for the callout
 function M._format_callout(callout, text, title)
   title = title and title .. ' ' or ''
+  local config = require('opencode.config').get()
   local win_width = (state.windows and state.windows.output_win and vim.api.nvim_win_is_valid(state.windows.output_win))
       and vim.api.nvim_win_get_width(state.windows.output_win)
     or config.ui.window_width
@@ -554,7 +555,6 @@ function M._format_tool(part)
   if state.current_permission and state.current_permission.messageID == part.messageID then
     metadata = state.current_permission.metadata or metadata
   end
-
   if tool == 'bash' then
     M._format_bash_tool(input --[[@as BashToolInput]], metadata --[[@as BashToolMetadata]])
   elseif tool == 'read' or tool == 'edit' or tool == 'write' then

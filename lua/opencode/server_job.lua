@@ -111,7 +111,7 @@ function M.ensure_server()
     end,
   })
 
-  return promise:wait()
+  return promise
 end
 
 return M
