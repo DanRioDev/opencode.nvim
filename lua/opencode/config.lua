@@ -391,6 +391,16 @@ function M.normalize_keymap(legacy_config, filter_functions)
   return converted
 end
 
+--- Get the entire config or a specific key
+--- @param key? string
+--- @return any
+function M.get(key)
+  if not key then
+    return M.values
+  end
+  return M.values[key]
+end
+
 ---@export Config
 return setmetatable(M, {
   __index = function(_, key)
