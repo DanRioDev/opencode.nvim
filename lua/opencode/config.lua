@@ -1,12 +1,8 @@
----@class OpencodeConfigModule
----@field defaults OpencodeConfig
----@field values OpencodeConfig
----@field setup fun(opts: OpencodeConfig)
----@field get_key_for_function fun(scope: 'editor'|'input_window'|'output_window', function_name: string): string|nil
----@field normalize_keymap fun(legacy_config: table, filter_functions?: table): table
----@field get fun(key?: string): any
+-- Default and user-provided settings for opencode.nvim
 
-local M = {} ---@type OpencodeConfigModule
+---@type OpencodeConfigModule
+---@diagnostic disable-next-line: missing-fields
+local M = {}
 -- Default configuration
 ---@type OpencodeConfig
 M.defaults = {
@@ -107,7 +103,7 @@ M.defaults = {
       file_sources = {
         cache_timeout = 300, -- seconds
         enabled = true,
-        preferred_cli_tool = 'fd',
+        preferred_cli_tool = 'server',
         ignore_patterns = {
           '^%.git/',
           '^%.svn/',
@@ -268,10 +264,6 @@ local function get_function_names(keymap_config)
   return names
 end
 
----Update keymap prefix in configuration
----@param prefix string New prefix to use
----@param default_prefix string Default prefix to replace
----@return nil
 function update_keymap_prefix(prefix, default_prefix)
   if prefix == default_prefix or not prefix then
     return
@@ -369,16 +361,6 @@ function M.normalize_keymap(legacy_config, filter_functions)
     end
   end
   return converted
-end
-
---- Get configuration value
---- @param key? string
---- @return any
-function M.get(key)
-  if key then
-    return M.values[key]
-  end
-  return M.values
 end
 
 ---@export Config

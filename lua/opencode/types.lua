@@ -53,7 +53,6 @@
 ---@field [1] string # Function name
 ---@field mode? string|string[] # Mode(s) for the keymap
 ---@field desc? string # Keymap description
-<<<<<<< HEAD
 
 ---@class OpencodeKeymapEditor : table<string, OpencodeKeymapEntry>
 ---@class OpencodeKeymapInputWindow : table<string, OpencodeKeymapEntry>
@@ -64,7 +63,6 @@
 ---@field accept_all string
 ---@field deny string
 
-<<<<<<< HEAD
 ---@class OpencodeKeymapWindow
 ---@field submit string
 ---@field submit_insert string
@@ -84,9 +82,6 @@
 ---@field debug_message string
 ---@field debug_output string
 ---@field debug_session string
-=======
->>>>>>> upstream/main
-=======
 
 ---@class OpencodeKeymapEditor : table<string, OpencodeKeymapEntry>
 ---@class OpencodeKeymapInputWindow : table<string, OpencodeKeymapEntry>
@@ -97,7 +92,16 @@
 ---@field accept_all string
 ---@field deny string
 
->>>>>>> upstream/main
+
+---@class OpencodeKeymapEditor : table<string, OpencodeKeymapEntry>
+---@class OpencodeKeymapInputWindow : table<string, OpencodeKeymapEntry>
+---@class OpencodeKeymapOutputWindow : table<string, OpencodeKeymapEntry>
+
+---@class OpencodeKeymapPermission
+---@field accept string
+---@field accept_all string
+---@field deny string
+
 ---@class OpencodeKeymap
 ---@field editor OpencodeKeymapEditor
 ---@field input_window OpencodeKeymapInputWindow
@@ -135,15 +139,9 @@
 
 ---@class OpencodeContextConfig
 ---@field enabled boolean
-<<<<<<< HEAD
-<<<<<<< HEAD
 ---@field idle_threshold number Idle threshold in milliseconds for automatic context updates
 ---@field cache_ttl { git_info: number, plugin_versions: number, highlights: number, lsp_symbols: number }
 ---@field plugin_versions { enabled: boolean, limit: number }
-=======
->>>>>>> upstream/main
-=======
->>>>>>> upstream/main
 ---@field cursor_data { enabled: boolean }
 ---@field diagnostics { info: boolean, warning: boolean, error: boolean }
 ---@field current_file { enabled: boolean, show_full_path: boolean }

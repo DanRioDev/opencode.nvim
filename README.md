@@ -183,7 +183,7 @@ require('opencode').setup({
       file_sources = {
         cache_timeout = 300, -- seconds
         enabled = true,
-        preferred_cli_tool = 'fd', -- 'fd','fdfind','rg','git' if nil, it will use the best available tool
+        preferred_cli_tool = 'server', -- 'fd','fdfind','rg','git','server' if nil, it will use the best available tool, 'server' uses opencode cli to get file list (works cross platform) and supports folders
         ignore_patterns = {
           '^%.git/',
           '^%.svn/',
