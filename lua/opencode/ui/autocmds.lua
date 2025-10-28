@@ -39,22 +39,25 @@ function M.setup_autocmds(windows)
   vim.api.nvim_create_autocmd('CursorHold', {
     group = group,
     pattern = '*',
-    callback = function(e)
-      if not require('opencode.ui.ui').is_opencode_focused() then
-        require('opencode.context').load()
-        require('opencode.state').last_code_win_before_opencode = vim.api.nvim_get_current_win()
+    callback = function()
+      local ui = require('opencode.ui.ui')
+      local context = require('opencode.context')
+      local state = require('opencode.state')
+
+      if not ui.is_opencode_focused() then
+        -- User is in regular code window, update context and track position
+        context.load()
+        state.last_code_win_before_opencode = vim.api.nvim_get_current_win()
       else
+        -- User is in opencode window, save cursor positions for restoration
         local pos = vim.api.nvim_win_get_cursor(0)
         if windows.input_win and vim.api.nvim_get_current_win() == windows.input_win then
-          require('opencode.state').last_input_window_position = pos
+          state.last_input_window_position = pos
         elseif windows.output_win and vim.api.nvim_get_current_win() == windows.output_win then
-          require('opencode.state').last_output_window_position = pos
+          state.last_output_window_position = pos
         end
       end
-      if not require('opencode.ui.ui').is_opencode_focused() then
-        require('opencode.context').load()
-        require('opencode.state').last_code_win_before_opencode = vim.api.nvim_get_current_win()
-      end
+
       M.cleanup()
     end,
   })

@@ -154,74 +154,6 @@ local function get_surrounding_lines(bufnr, line_num)
   }
 end
 
-local cache = { timestamp = 0, last_changedtick = 0, data = nil }
-
-local cwd = vim.fn.getcwd()
-
-local function is_in_cwd(path)
-  if not path or path == '' then
-    return false
-  end
-  return vim.startswith(vim.fn.fnamemodify(path, ':p'), cwd)
-end
-
--- Privacy filter: redact paths outside project root
-local function filter_path_privacy(path)
-  if not path or path == '' then
-    return path
-  end
-
-  -- Check if privacy filtering is enabled in config
-  if config.context and config.context.privacy_filter and config.context.privacy_filter.enabled == false then
-    return path
-  end
-
-  -- If path is within project, return as-is
-  if is_in_cwd(path) then
-    return path
-  end
-
-  -- Redact paths outside project root
-  local basename = vim.fn.fnamemodify(path, ':t')
-  return '[EXTERNAL]/' .. basename
-end
-
--- Secret detection: check if content contains likely secrets
-local function contains_secret(content)
-  if not content or content == '' then
-    return false
-  end
-
-  -- Check if secret filtering is enabled in config
-  if config.context and config.context.secret_filter and config.context.secret_filter.enabled == false then
-    return false
-  end
-
-  -- Common secret patterns
-  local secret_patterns = {
-    -- API keys and tokens (long alphanumeric strings)
-    '[%w%-_]+%.[%w%-_]+%.[%w%-_]+', -- JWT tokens (xxx.yyy.zzz)
-    'api[_%- ]?key[_%- ]?[:=][%s]*[\'"]?[%w%-_]+[\'"]?', -- API key assignments
-    'token[_%- ]?[:=][%s]*[\'"]?[%w%-_]+[\'"]?', -- Token assignments
-    'password[_%- ]?[:=][%s]*[\'"]?[%w%-_]+[\'"]?', -- Password assignments
-    'secret[_%- ]?[:=][%s]*[\'"]?[%w%-_]+[\'"]?', -- Secret assignments
-    -- Long hex strings (potential keys)
-    '[0-9a-fA-F]{32,}',
-    -- AWS-style keys
-    'AKIA[0-9A-Z]{16}',
-    -- Private keys
-    '%-%-%-%-%-BEGIN [%w%s]+ PRIVATE KEY%-%-%-%-%-',
-  }
-
-  for _, pattern in ipairs(secret_patterns) do
-    if content:match(pattern) then
-      return true
-    end
-  end
-
-  return false
-end
-
 M.context = {
   -- current file
   current_file = nil,
@@ -277,16 +209,6 @@ local function get_cache_ttl(key, default)
     highlights = 5000, -- 5 seconds
   }
   return heavy_ttls[key] or default or context_cache.DEFAULT_TTL
-end
-
-
--- Helper function to get cache TTL from config
-local function get_cache_ttl(key, default)
-  local cfg = require('opencode.config')
-  if cfg.context and cfg.context.cache_ttl and cfg.context.cache_ttl[key] then
-    return cfg.context.cache_ttl[key]
-  end
-  return default or context_cache.DEFAULT_TTL
 end
 
 function M.unload_attachments()
@@ -404,71 +326,71 @@ function M.load()
 end
 
 function M.setup_chained_autocmds()
-  local augroup = vim.api.nvim_create_augroup('OpencodeContext', { clear = true })
-
-  -- Dependency map for chaining
-  local chains = {
-    BufEnter = {
-      { fn = M.get_current_file, next = { 'cursor_data', 'linter_errors' } },
-      { fn = M.get_cursor_data, deps = { 'current_file' } },
-      { fn = M.get_linter_errors, deps = { 'current_file' } },
-      { fn = M.get_selection, deps = { 'current_file' } },
-    },
-    LspAttach = {
-      { fn = M.get_lsp_context, deps = { 'current_file' } },
-    },
-    FileChangedShell = {
-      { fn = M.get_git_info, next = { 'recent_buffers' } },
-      { fn = M.get_recent_buffers, deps = { 'git_info' } },
-    },
-    CursorMoved = {
-      { fn = M.get_cursor_surrounding, next = { 'vectorcode_snippets' } },
-      { fn = M.get_vectorcode_snippets, deps = { 'cursor_surrounding' } },
-    },
-    WinEnter = {
-      { fn = M.get_highlights },
-    },
-    VimEnter = {
-      { fn = M.get_plugin_versions },
-    },
-    TextChanged = {
-      { fn = M.get_vectorcode_snippets },
-    },
-  }
-
-  for event, chain_list in pairs(chains) do
-    for _, step in ipairs(chain_list) do
-      vim.api.nvim_create_autocmd(event, {
-        group = augroup,
-        callback = function(args)
-          -- Check dependencies
-          if step.deps and not M.check_dependencies(step.deps) then
-            return
-          end
-          -- Run the function (Promise-based)
-          local promise = step.fn()
-          if promise then
-            promise
-              :and_then(function(result)
-                M.context[step.fn_name or 'unknown'] = result
-                -- Trigger next in chain if specified
-                if step.next then
-                  for _, next_fn in ipairs(step.next) do
-                    vim.defer_fn(function()
-                      M[next_fn]()
-                    end, 0)
-                  end
-                end
-              end)
-              :catch(function(err)
-                vim.notify('Context error in ' .. event .. ': ' .. err, vim.log.levels.ERROR)
-              end)
-          end
-        end,
-        nested = true,
-      })
-    end
-  end
+  -- local augroup = vim.api.nvim_create_augroup('OpencodeContext', { clear = true })
+  --
+  -- -- Dependency map for chaining
+  -- local chains = {
+  --   BufEnter = {
+  --     { fn = M.get_current_file, next = { 'cursor_data', 'linter_errors' } },
+  --     { fn = M.get_cursor_data, deps = { 'current_file' } },
+  --     { fn = M.get_linter_errors, deps = { 'current_file' } },
+  --     { fn = M.get_selection, deps = { 'current_file' } },
+  --   },
+  --   LspAttach = {
+  --     { fn = M.get_lsp_context, deps = { 'current_file' } },
+  --   },
+  --   FileChangedShell = {
+  --     { fn = M.get_git_info, next = { 'recent_buffers' } },
+  --     { fn = M.get_recent_buffers, deps = { 'git_info' } },
+  --   },
+  --   CursorMoved = {
+  --     { fn = M.get_cursor_surrounding, next = { 'vectorcode_snippets' } },
+  --     { fn = M.get_vectorcode_snippets, deps = { 'cursor_surrounding' } },
+  --   },
+  --   WinEnter = {
+  --     { fn = M.get_highlights },
+  --   },
+  --   VimEnter = {
+  --     { fn = M.get_plugin_versions },
+  --   },
+  --   TextChanged = {
+  --     { fn = M.get_vectorcode_snippets },
+  --   },
+  -- }
+  --
+  -- for event, chain_list in pairs(chains) do
+  --   for _, step in ipairs(chain_list) do
+  --     vim.api.nvim_create_autocmd(event, {
+  --       group = augroup,
+  --       callback = function(args)
+  --         -- Check dependencies
+  --         if step.deps and not M.check_dependencies(step.deps) then
+  --           return
+  --         end
+  --         -- Run the function (Promise-based)
+  --         local promise = step.fn()
+  --         if promise then
+  --           promise
+  --             :and_then(function(result)
+  --               M.context[step.fn_name or 'unknown'] = result
+  --               -- Trigger next in chain if specified
+  --               if step.next then
+  --                 for _, next_fn in ipairs(step.next) do
+  --                   vim.defer_fn(function()
+  --                     M[next_fn]()
+  --                   end, 0)
+  --                 end
+  --               end
+  --             end)
+  --             :catch(function(err)
+  --               vim.notify('Context error in ' .. event .. ': ' .. err, vim.log.levels.ERROR)
+  --             end)
+  --         end
+  --       end,
+  --       nested = true,
+  --     })
+  --   end
+  -- end
 end
 
 -- Helper to check dependencies

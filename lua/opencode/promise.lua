@@ -7,11 +7,15 @@
 ---@field wait fun(self: self, timeout?: integer, interval?: integer): any
 ---@field is_resolved fun(self: self): boolean
 ---@field is_rejected fun(self: self): boolean
+---@field cancel fun(self: self): self
+---@field is_cancelled fun(self: self): boolean
 ---@field _resolved boolean
 ---@field _value any
 ---@field _error any
 ---@field _then_callbacks fun(value: any)[]
 ---@field _catch_callbacks fun(err: any)[]
+---@field _cancelled boolean
+---@field _cancelled boolean
 local Promise = {}
 Promise.__index = Promise
 
@@ -25,6 +29,7 @@ function Promise.new()
     _error = nil,
     _then_callbacks = {},
     _catch_callbacks = {},
+    _cancelled = false,
   }, Promise)
   return self
 end
@@ -37,6 +42,7 @@ function Promise:resolve(value)
   if self._resolved then
     return self
   end
+  self._cancelled = false  -- Clear cancellation on resolve
   self._value = value
   self._resolved = true
 
@@ -168,7 +174,11 @@ end
 function Promise:wait(timeout, interval)
   if self._resolved then
     if self._error then
-      error(self._error)
+      if self._error.type == 'cancelled' then
+        error('Operation was cancelled')
+      else
+        error(self._error)
+      end
     end
     return self._value
   end
@@ -185,7 +195,11 @@ function Promise:wait(timeout, interval)
   end
 
   if self._error then
-    error(self._error)
+    if self._error.type == 'cancelled' then
+      error('Operation was cancelled')
+    else
+      error(self._error)
+    end
   end
 
   return self._value
@@ -199,8 +213,40 @@ function Promise:is_rejected()
   return self._resolved and self._error ~= nil
 end
 
+---@generic T
+---@param self Promise<T>
+---@return Promise<T>
+function Promise:cancel()
+  if self._resolved then return self end
+  self._cancelled = true
+  self._error = {
+    type = 'cancelled',
+    message = 'Operation was cancelled',
+    timestamp = vim.fn.localtime(),
+  }
+  self._resolved = true
+  
+  local schedule_catch = vim.schedule_wrap(function(cb, e)
+    cb(e)
+  end)
+  for _, callback in ipairs(self._catch_callbacks) do
+    schedule_catch(callback, self._error)
+  end
+  return self
+end
+
+---@generic T
+---@param self Promise<T>
+---@return boolean
+function Promise:is_cancelled()
+  return self._cancelled
+end
+
 -- Static method to wait for multiple promises
-function Promise.all(promises)
+---@param promises Promise[]
+---@param timeout integer|nil Optional timeout in milliseconds
+---@return Promise
+function Promise.all(promises, timeout)
   local all_promise = Promise.new()
   local results = {}
   local count = #promises
@@ -212,15 +258,39 @@ function Promise.all(promises)
     return all_promise
   end
 
+  -- Set up timeout if specified
+  local timer = nil
+  if timeout then
+    timer = vim.uv.new_timer()
+    timer:start(timeout, 0, function()
+      timer:close()
+      if not all_promise:is_resolved() then
+        all_promise:cancel()
+      end
+    end)
+  end
+
+  local function cleanup_timer()
+    if timer then
+      timer:stop()
+      timer:close()
+    end
+  end
+
   for i, p in ipairs(promises) do
     p:and_then(function(result)
+      if all_promise:is_resolved() then return end
+      
       results[i] = result
       resolved_count = resolved_count + 1
+      
       if resolved_count == count and not has_error then
+        cleanup_timer()
         all_promise:resolve(results)
       end
     end):catch(function(err)
       if not has_error then
+        cleanup_timer()
         has_error = true
         all_promise:reject(err)
       end
