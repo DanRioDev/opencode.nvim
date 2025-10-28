@@ -3,9 +3,10 @@ local M = {}
 ---@type CompletionSource
 local subagent_source = {
   name = 'subagents',
+  priority = 1,
   complete = function(context)
     local subagents = require('opencode.config_file').get_subagents()
-    local config = require('opencode.config').get()
+    local config = require('opencode.config')
     local config_mod = require('opencode.config')
     local expected_trigger = config_mod.get_key_for_function('input_window', 'mention')
     if context.trigger_char ~= expected_trigger then

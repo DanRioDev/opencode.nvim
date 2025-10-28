@@ -63,7 +63,7 @@ function M.on_complete(item)
 end
 
 function M.get_completion_engine()
-  local config = require('opencode.config').get()
+  local config = require('opencode.config')
   local engine = config.preferred_completion
   if not engine then
     local ok_cmp = pcall(require, 'cmp')
@@ -85,6 +85,9 @@ function M.trigger_completion(trigger_char)
 
     if engine == 'vim_complete' then
       require('opencode.ui.completion.engines.vim_complete').trigger(trigger_char)
+    elseif engine == 'blink' then
+      vim.api.nvim_feedkeys(trigger_char, 'in', true)
+      require('blink.cmp').show({ providers = { 'opencode_mentions' } })
     else
       vim.api.nvim_feedkeys(trigger_char, 'in', true)
     end

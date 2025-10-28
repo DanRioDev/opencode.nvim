@@ -35,37 +35,35 @@ function M.setup_autocmds(windows)
     end,
   })
 
-  -- Setup idle detection for automatic context updates
-  -- if idle_detector ~= nil then
-  --   idle_detector:stop()
-  -- end
-  --
-  -- local config = require('opencode.config')
-  -- local threshold = config.get('context').idle_threshold or 10000
-  --
-  -- idle_detector = IdleDetector.new({
-  --   threshold = threshold,
-  --   callback = function()
-  --     -- Update context only if user is not focused on opencode window
-  --     if not require('opencode.ui.ui').is_opencode_focused() then
-  --       local ft = vim.api.nvim_get_option_value('filetype', { buf = 0 })
-  --       if ft == 'gitcommit' or ft == 'NeogitCommitMessage' then
-  --         return
-  --       end
-  --       require('opencode.context').load()
-  --       require('opencode.state').last_code_win_before_opencode = vim.api.nvim_get_current_win()
-  --     end
-  --   end,
-  -- })
-  --
-  -- idle_detector:start()
-
-  -- Defensive cleanup on exit in case window close didn't trigger
-  vim.api.nvim_create_autocmd('VimLeavePre', {
+  -- Based on CursorHold, update context if user is not focused on opencode window
+  vim.api.nvim_create_autocmd('CursorHold', {
     group = group,
-    once = true,
-    callback = function()
+    pattern = '*',
+    callback = function(e)
+      if not require('opencode.ui.ui').is_opencode_focused() then
+        require('opencode.context').load()
+        require('opencode.state').last_code_win_before_opencode = vim.api.nvim_get_current_win()
+      else
+        local pos = vim.api.nvim_win_get_cursor(0)
+        if windows.input_win and vim.api.nvim_get_current_win() == windows.input_win then
+          require('opencode.state').last_input_window_position = pos
+        elseif windows.output_win and vim.api.nvim_get_current_win() == windows.output_win then
+          require('opencode.state').last_output_window_position = pos
+        end
+      end
+      if not require('opencode.ui.ui').is_opencode_focused() then
+        require('opencode.context').load()
+        require('opencode.state').last_code_win_before_opencode = vim.api.nvim_get_current_win()
+      end
       M.cleanup()
+    end,
+  })
+
+  vim.api.nvim_create_autocmd('WinEnter', {
+    group = group,
+    pattern = '*',
+    callback = function()
+      require('opencode.state').is_opencode_focused = require('opencode.ui.ui').is_opencode_focused()
     end,
   })
 end

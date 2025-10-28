@@ -1,5 +1,5 @@
 local state = require('opencode.state')
-local config = require('opencode.config').get()
+local config = require('opencode.config')
 local M = {}
 
 function M.create_buf()
@@ -63,7 +63,8 @@ function M.handle_submit()
     return
   end
 
-  if input_content:match('^/') then
+  local key = config.get_key_for_function('input_window', 'slash_commands') or '/'
+  if input_content:match('^' .. key) then
     M._execute_slash_command(input_content)
     return
   end
@@ -72,16 +73,21 @@ function M.handle_submit()
 end
 
 M._execute_slash_command = function(command)
-  local slash_commands = require('opencode.config_file').get_user_commands()
+  local slash_commands = require('opencode.api').get_slash_commands()
+  local key = config.get_key_for_function('input_window', 'slash_commands') or '/'
+
   local cmd = command:sub(2):match('^%s*(.-)%s*$')
   if cmd == '' then
     return
   end
   local parts = vim.split(cmd, ' ')
-  local command_cfg = slash_commands[parts[1]]
+
+  local command_cfg = vim.tbl_filter(function(c)
+    return c.slash_cmd == key .. parts[1]
+  end, slash_commands)[1]
 
   if command_cfg then
-    require('opencode.api').run_user_command(parts[1], vim.list_slice(parts, 2))
+    command_cfg.fn(vim.list_slice(parts, 2))
   else
     vim.notify('Unknown command: ' .. cmd, vim.log.levels.WARN)
   end
@@ -134,10 +140,9 @@ function M.refresh_placeholder(windows, input_lines)
     local ns_id = vim.api.nvim_create_namespace('input_placeholder')
     local win_width = vim.api.nvim_win_get_width(windows.input_win)
     local padding = string.rep(' ', win_width)
-    local config_mod = require('opencode.config')
-    local slash_key = config_mod.get_key_for_function('input_window', 'slash_commands')
-    local mention_key = config_mod.get_key_for_function('input_window', 'mention')
-    local mention_file_key = config_mod.get_key_for_function('input_window', 'mention_file')
+    local slash_key = config.get_key_for_function('input_window', 'slash_commands')
+    local mention_key = config.get_key_for_function('input_window', 'mention')
+    local mention_file_key = config.get_key_for_function('input_window', 'mention_file')
 
     vim.api.nvim_buf_set_extmark(windows.input_buf, ns_id, 0, 0, {
       virt_text = {
@@ -165,7 +170,7 @@ function M.clear_placeholder(windows)
 end
 
 function M.recover_input(windows)
-  M.set_content(state.input_content)
+  M.set_content(state.input_content, windows)
   require('opencode.ui.mention').highlight_all_mentions(windows.input_buf)
 end
 
@@ -203,10 +208,7 @@ end
 
 function M.setup_keymaps(windows)
   local keymap = require('opencode.keymap')
-  local config_mod = require('opencode.config')
-  local input_keymaps = config_mod.get('keymap').input_window
-  
-  keymap.setup_window_keymaps(input_keymaps, windows.input_buf)
+  keymap.setup_window_keymaps(config.keymap.input_window, windows.input_buf)
 end
 
 function M.setup_autocmds(windows, group)

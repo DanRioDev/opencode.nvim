@@ -9,6 +9,7 @@ local context_cache = require('opencode.context_cache')
 local Promise = require('opencode.promise')
 -- local context_mcphub = require('opencode.context_mcphub')
 
+
 local M = {}
 
 --- Parse MCPHub diagnostics output into OpenCode LSP context format
@@ -155,6 +156,74 @@ local function get_surrounding_lines(bufnr, line_num)
   }
 end
 
+local cache = { timestamp = 0, last_changedtick = 0, data = nil }
+
+local cwd = vim.fn.getcwd()
+
+local function is_in_cwd(path)
+  if not path or path == '' then
+    return false
+  end
+  return vim.startswith(vim.fn.fnamemodify(path, ':p'), cwd)
+end
+
+-- Privacy filter: redact paths outside project root
+local function filter_path_privacy(path)
+  if not path or path == '' then
+    return path
+  end
+
+  -- Check if privacy filtering is enabled in config
+  if config.context and config.context.privacy_filter and config.context.privacy_filter.enabled == false then
+    return path
+  end
+
+  -- If path is within project, return as-is
+  if is_in_cwd(path) then
+    return path
+  end
+
+  -- Redact paths outside project root
+  local basename = vim.fn.fnamemodify(path, ':t')
+  return '[EXTERNAL]/' .. basename
+end
+
+-- Secret detection: check if content contains likely secrets
+local function contains_secret(content)
+  if not content or content == '' then
+    return false
+  end
+
+  -- Check if secret filtering is enabled in config
+  if config.context and config.context.secret_filter and config.context.secret_filter.enabled == false then
+    return false
+  end
+
+  -- Common secret patterns
+  local secret_patterns = {
+    -- API keys and tokens (long alphanumeric strings)
+    '[%w%-_]+%.[%w%-_]+%.[%w%-_]+', -- JWT tokens (xxx.yyy.zzz)
+    'api[_%- ]?key[_%- ]?[:=][%s]*[\'"]?[%w%-_]+[\'"]?', -- API key assignments
+    'token[_%- ]?[:=][%s]*[\'"]?[%w%-_]+[\'"]?', -- Token assignments
+    'password[_%- ]?[:=][%s]*[\'"]?[%w%-_]+[\'"]?', -- Password assignments
+    'secret[_%- ]?[:=][%s]*[\'"]?[%w%-_]+[\'"]?', -- Secret assignments
+    -- Long hex strings (potential keys)
+    '[0-9a-fA-F]{32,}',
+    -- AWS-style keys
+    'AKIA[0-9A-Z]{16}',
+    -- Private keys
+    '%-%-%-%-%-BEGIN [%w%s]+ PRIVATE KEY%-%-%-%-%-',
+  }
+
+  for _, pattern in ipairs(secret_patterns) do
+    if content:match(pattern) then
+      return true
+    end
+  end
+
+  return false
+end
+
 M.context = {
   -- current file
   current_file = nil,
@@ -210,6 +279,16 @@ local function get_cache_ttl(key, default)
     highlights = 5000, -- 5 seconds
   }
   return heavy_ttls[key] or default or context_cache.DEFAULT_TTL
+end
+
+
+-- Helper function to get cache TTL from config
+local function get_cache_ttl(key, default)
+  local cfg = require('opencode.config')
+  if cfg.context and cfg.context.cache_ttl and cfg.context.cache_ttl[key] then
+    return cfg.context.cache_ttl[key]
+  end
+  return default or context_cache.DEFAULT_TTL
 end
 
 function M.unload_attachments()
@@ -475,11 +554,16 @@ function M.add_selection(selection)
 end
 
 function M.add_file(file)
+  --- TODO: probably need a way to remove a file once it's been added?
+  --- maybe a keymap like clear all context?
+
   if not M.context.mentioned_files then
     M.context.mentioned_files = {}
   end
 
-  if vim.fn.filereadable(file) ~= 1 then
+  local is_file = vim.fn.filereadable(file) == 1
+  local is_dir = vim.fn.isdirectory(file) == 1
+  if not is_file and not is_dir then
     vim.notify('File not added to context. Could not read.')
     return
   end
@@ -1586,7 +1670,7 @@ local function format_file_part(path, prompt)
     file_part.source = {
       path = path,
       type = 'file',
-      text = { start = pos, value = mention, ['end'] = pos + #mention - 1 },
+      text = { start = pos, value = mention, ['end'] = pos + #mention },
     }
   end
   return file_part
@@ -1668,7 +1752,14 @@ function M.format_message(prompt, opts)
   end
 
   for _, path in ipairs(context.mentioned_files or {}) do
-    table.insert(parts, format_file_part(path, prompt))
+    -- don't resend current file if it's also mentioned
+    if not context.current_file or path ~= context.current_file.path then
+      table.insert(parts, format_file_part(path, prompt))
+    end
+  end
+
+  for _, sel in ipairs(context.selections or {}) do
+    table.insert(parts, format_selection_part(sel))
   end
 
   for _, agent in ipairs(context.mentioned_subagents or {}) do
@@ -1677,10 +1768,6 @@ function M.format_message(prompt, opts)
 
   if context.current_file then
     table.insert(parts, format_file_part(context.current_file.path))
-  end
-
-  for _, sel in ipairs(context.selections or {}) do
-    table.insert(parts, format_selection_part(sel))
   end
 
   if context.linter_errors then
@@ -1694,6 +1781,10 @@ function M.format_message(prompt, opts)
   -- Add new context types
   if context.marks then
     table.insert(parts, format_context_part('marks', context.marks))
+  end
+
+  if context.vectorcode_snippets then
+    table.insert(parts, format_context_part('vectorcode_snippets', context.vectorcode_snippets))
   end
 
   if context.jumplist then
@@ -1772,17 +1863,13 @@ function M.format_message(prompt, opts)
     table.insert(parts, format_context_part('session_duration', context.session_duration))
   end
 
-  if context.vectorcode_snippets then
-    table.insert(parts, format_context_part('vectorcode_snippets', context.vectorcode_snippets))
-  end
-
   return parts
 end
 
----@param part OpencodeMessagePart
+---@param text string
 ---@param context_type string|nil
-local function decode_json_context(part, context_type)
-  local ok, result = pcall(vim.json.decode, part.text)
+function M.decode_json_context(text, context_type)
+  local ok, result = pcall(vim.json.decode, text)
   if not ok or (context_type and result.context_type ~= context_type) then
     return nil
   end
@@ -1800,7 +1887,7 @@ function M.extract_from_opencode_message(message)
       ctx.prompt = ctx.prompt or part.text or ''
     end,
     text_context = function(part)
-      local json = decode_json_context(part, 'selection')
+      local json = M.decode_json_context(part.text, 'selection')
       ctx.selected_text = json and json.content or ctx.selected_text
     end,
     file = function(part)

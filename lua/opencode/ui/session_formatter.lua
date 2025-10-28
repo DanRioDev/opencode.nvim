@@ -3,7 +3,7 @@ local icons = require('opencode.ui.icons')
 local util = require('opencode.util')
 local Output = require('opencode.ui.output')
 local state = require('opencode.state')
-local config = require('opencode.config').get()
+local config = require('opencode.config')
 local snapshot = require('opencode.snapshot')
 
 local M = {
@@ -325,7 +325,7 @@ function M._format_message_header(message, msg_idx)
     if mode and mode ~= '' then
       display_name = mode:upper()
     else
-      -- For the most recent assistant message, show current_mode if mode is missing
+      -- For the most recent assistant message, show current_mode if assistant_mode is missing
       -- This handles new messages that haven't been stamped yet
       local is_last_message = msg_idx == #state.messages
       if is_last_message and state.current_mode and state.current_mode ~= '' then
@@ -437,8 +437,9 @@ function M._format_bash_tool(input, metadata)
     return
   end
 
-  if metadata.output then
-    M._format_code(vim.split('> ' .. input.command or '' .. '\n\n' .. metadata.output, '\n'), 'bash')
+  if metadata.output or metadata.command or input.command then
+    local command = input.command or metadata.command or ''
+    M._format_code(vim.split('> ' .. command .. '\n\n' .. (metadata.output or ''), '\n'), 'bash')
   end
 end
 

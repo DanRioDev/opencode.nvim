@@ -1,13 +1,5 @@
--- Default and user-provided settings for opencode.nvim
-
---- @class OpencodeConfigModule
---- @field defaults OpencodeConfig
---- @field values OpencodeConfig
---- @field setup fun(opts?: OpencodeConfig): nil
---- @field get fun(key: nil): OpencodeConfig
---- @field get fun(key: "preferred_picker"): 'mini.pick' | 'telescope' | 'fzf' | 'snacks' | nil
 --- @field get fun(key: "preferred_completion"): 'blink' | 'nvim-cmp' | 'vim_complete' | nil
---- @field get fun(key: "default_mode"): 'build' | 'plan' |
+--- @field get fun(key: "default_mode"): 'build' | 'plan'
 --- @field get fun(key: "default_global_keymaps"): boolean
 --- @field get fun(key: "keymap"): OpencodeKeymap
 --- @field get fun(key: "ui"): OpencodeUIConfig
@@ -17,8 +9,14 @@
 
 local M = {} ---@type OpencodeConfigModule
 
+--- @class OpencodeConfigModule
+--- @field defaults OpencodeConfig
+--- @field values OpencodeConfig
+--- @field setup fun(opts?: OpencodeConfig): nil
+--- @field get fun(key: nil): OpencodeConfig
+--- @field get fun(key: "preferred_picker"): 'mini.pick' | 'telescope' | 'fzf' | 'snacks' | nil
 --- @field get fun(key: "preferred_completion"): 'blink' | 'nvim-cmp' | 'vim_complete' | nil
---- @field get fun(key: "default_mode"): 'build' | 'plan'
+--- @field get fun(key: "default_mode"): 'build' | 'plan' |
 --- @field get fun(key: "default_global_keymaps"): boolean
 --- @field get fun(key: "keymap"): OpencodeKeymap
 --- @field get fun(key: "ui"): OpencodeUIConfig
@@ -59,9 +57,9 @@ M.defaults = {
       ['<leader>orr'] = { 'diff_restore_snapshot_file' },
       ['<leader>orR'] = { 'diff_restore_snapshot_all' },
       ['<leader>ox'] = { 'swap_position' },
-      ['<leader>opa'] = { 'permission_accept' },
-      ['<leader>opA'] = { 'permission_accept_all' },
-      ['<leader>opd'] = { 'permission_deny' },
+      ['<leader>oPa'] = { 'permission_accept' },
+      ['<leader>oPA'] = { 'permission_accept_all' },
+      ['<leader>oPd'] = { 'permission_deny' },
     },
     output_window = {
       ['<esc>'] = { 'close' },
@@ -69,7 +67,7 @@ M.defaults = {
       [']]'] = { 'next_message' },
       ['[['] = { 'prev_message' },
       ['<tab>'] = { 'toggle_pane', mode = { 'n', 'i' } },
-      ['<C-i>'] = { 'focus_input' },
+      ['i'] = { 'focus_input' },
       ['<leader>oS'] = { 'select_child_session' },
       ['<leader>oD'] = { 'debug_message' },
       ['<leader>oO'] = { 'debug_output' },
@@ -96,6 +94,10 @@ M.defaults = {
       accept_all = 'A',
       deny = 'd',
     },
+    session_picker = {
+      delete_session = { '<C-d>' },
+      new_session = { '<C-n>' },
+    },
   },
   ui = {
     position = 'right',
@@ -111,9 +113,15 @@ M.defaults = {
       overrides = {},
     },
     loading_animation = {
-      frames = { '·', '․', '•', '∙', '●', '⬤', '●', '∙', '•', '․' },
+      frames = { '⠋', '⠙', '⠹', '⠸', '⠼', '⠴', '⠦', '⠧', '⠇', '⠏' },
     },
     output = {
+      rendering = {
+        markdown_debounce_ms = 250,
+        on_data_rendered = nil,
+        event_throttle_ms = 40,
+        event_collapsing = true,
+      },
       tools = {
         show_output = true,
       },
@@ -127,7 +135,7 @@ M.defaults = {
       file_sources = {
         cache_timeout = 300, -- seconds
         enabled = true,
-        preferred_cli_tool = 'fd',
+        preferred_cli_tool = 'server',
         ignore_patterns = {
           '^%.git/',
           '^%.svn/',
@@ -177,6 +185,10 @@ M.defaults = {
       limit = 20,
     },
     cursor_data = {
+      enabled = false,
+      limit = 20,
+    },
+    cursor_data = {
       enabled = true,
     },
     diagnostics = {
@@ -194,6 +206,79 @@ M.defaults = {
     },
     selection = {
       enabled = true,
+    },
+    marks = {
+      enabled = true,
+      limit = 5,
+    },
+    jumplist = {
+      enabled = true,
+      limit = 5,
+    },
+    recent_buffers = {
+      enabled = true,
+      limit = 3,
+      symbols_only = true,
+    },
+    undo_history = {
+      enabled = true,
+      limit = 3,
+    },
+    windows_tabs = {
+      enabled = true,
+    },
+    highlights = {
+      enabled = true,
+    },
+    session_info = {
+      enabled = false,
+    },
+    registers = {
+      enabled = true,
+      include = { '"', '/', 'q', '0', '1', '2', '3', '4', '5', '6', '7', '8', '9', '%', '#', '.' },
+    },
+    command_history = {
+      enabled = true,
+      limit = 3,
+    },
+    search_history = {
+      enabled = true,
+      limit = 3,
+    },
+    debug_data = {
+      enabled = true,
+    },
+    lsp_context = {
+      enabled = false,
+      diagnostics_limit = 10,
+      code_actions = false,
+    },
+    git_info = {
+      enabled = true,
+      diff_limit = 10,
+      changes_limit = 5,
+    },
+    fold_info = {
+      enabled = true,
+    },
+    cursor_surrounding = {
+      enabled = true,
+      lines_above = 4,
+      lines_below = 4,
+    },
+    quickfix_loclist = {
+      enabled = true,
+      limit = 5,
+    },
+    macros = {
+      enabled = false,
+      register = 'q',
+    },
+    terminal_buffers = {
+      enabled = true,
+    },
+    session_duration = {
+      enabled = false,
     },
     marks = {
       enabled = true,
@@ -276,6 +361,7 @@ M.defaults = {
   },
   debug = {
     enabled = false,
+    capture_streamed_events = false,
   },
 }
 
@@ -293,7 +379,7 @@ local function get_function_names(keymap_config)
   return names
 end
 
-function update_keymap_prefix(prefix, default_prefix)
+local function update_keymap_prefix(prefix, default_prefix)
   if prefix == default_prefix or not prefix then
     return
   end
@@ -302,7 +388,12 @@ function update_keymap_prefix(prefix, default_prefix)
     local new_mappings = {}
     for key, opts in pairs(mappings) do
       if vim.startswith(key, default_prefix) then
-        new_mappings[prefix .. key:sub(#default_prefix + 1)] = opts
+        local new_key = prefix .. key:sub(#default_prefix + 1)
+
+        -- make sure there's not already a mapping for that key
+        if not new_mappings[new_key] then
+          new_mappings[new_key] = opts
+        end
       else
         new_mappings[key] = opts
       end
@@ -342,16 +433,11 @@ function M.setup(opts)
     end
   end
 
+  -- vim.notify(vim.inspect(opts))
   M.values = vim.tbl_deep_extend('force', M.values, opts --[[@as OpencodeConfig]])
+  -- vim.notify(vim.inspect(M.values))
 
   update_keymap_prefix(M.values.keymap_prefix, M.defaults.keymap_prefix)
-end
-
-function M.get(key)
-  if key then
-    return M.values[key]
-  end
-  return M.values
 end
 
 --- Get the key binding for a specific function in a scope
@@ -359,9 +445,7 @@ end
 --- @param function_name string
 --- @return string|nil
 function M.get_key_for_function(scope, function_name)
-  local config_data = M.get()
-
-  local keymap_config = config_data.keymap and config_data.keymap[scope]
+  local keymap_config = M.values.keymap and M.values.keymap[scope]
   if not keymap_config then
     return nil
   end
@@ -399,4 +483,15 @@ function M.normalize_keymap(legacy_config, filter_functions)
   return converted
 end
 
-return M
+---@export Config
+return setmetatable(M, {
+  __index = function(_, key)
+    return M.values[key]
+  end,
+  __newindex = function(_, key, value)
+    M.values[key] = value
+  end,
+  __tostring = function(_)
+    return vim.inspect(M.values)
+  end,
+})
