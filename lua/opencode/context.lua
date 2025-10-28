@@ -7,8 +7,6 @@ end
 local state = require('opencode.state')
 local context_cache = require('opencode.context_cache')
 local Promise = require('opencode.promise')
--- local context_mcphub = require('opencode.context_mcphub')
-
 
 local M = {}
 
@@ -367,27 +365,10 @@ function M.load()
   -- Concurrency: Run independent heavy ops in parallel using multiple defers
   -- Parallel group 1: LSP and Git (independent)
   vim.defer_fn(function()
-    -- Use MCPHub for LSP context if enabled
-    local cfg = get_config()
-    -- if cfg.context.mcphub.enabled and context_mcphub.is_available() then
-    --   context_mcphub
-    --     .get_lsp_diagnostics_mcphub()
-    --     :and_then(function(result)
-    --       -- Parse MCPHub diagnostics result and convert to OpenCode format
-    --       M.context.lsp_context = M.parse_mcphub_diagnostics(result)
-    --     end)
-    --     :catch(function(err)
-    --       if cfg.context.mcphub.fallback_to_native then
-    --         M.get_lsp_context():and_then(function(result)
-    --           M.context.lsp_context = result
-    --         end)
-    --       end
-    --     end)
-    -- else
-    --   M.get_lsp_context():and_then(function(result)
-    --     M.context.lsp_context = result
-    --   end)
-    -- end
+    -- Use native LSP context
+    M.get_lsp_context():and_then(function(result)
+      M.context.lsp_context = result
+    end)
 
     M.get_git_info():and_then(function(result)
       M.context.git_info = result

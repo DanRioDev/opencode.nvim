@@ -185,10 +185,6 @@ M.defaults = {
       limit = 20,
     },
     cursor_data = {
-      enabled = false,
-      limit = 20,
-    },
-    cursor_data = {
       enabled = true,
     },
     diagnostics = {
@@ -206,10 +202,6 @@ M.defaults = {
     },
     selection = {
       enabled = true,
-    },
-    marks = {
-      enabled = true,
-      limit = 5,
     },
     jumplist = {
       enabled = true,
@@ -280,79 +272,8 @@ M.defaults = {
     session_duration = {
       enabled = false,
     },
-    marks = {
-      enabled = true,
-      limit = 5,
-    },
-    jumplist = {
-      enabled = true,
-      limit = 5,
-    },
-    recent_buffers = {
-      enabled = true,
-      limit = 3,
-      symbols_only = true,
-    },
-    undo_history = {
-      enabled = true,
-      limit = 3,
-    },
-    windows_tabs = {
-      enabled = true,
-    },
-    highlights = {
-      enabled = false,
-    },
-    session_info = {
-      enabled = false,
-    },
-    registers = {
-      enabled = true,
-      include = { '"', '/', 'q', '0', '1', '2', '3', '4', '5', '6', '7', '8', '9', '%', '#', '.' },
-    },
-    command_history = {
-      enabled = true,
-      limit = 3,
-    },
-    search_history = {
-      enabled = true,
-      limit = 3,
-    },
-    debug_data = {
-      enabled = true,
-    },
-    lsp_context = {
-      enabled = false,
-      diagnostics_limit = 10,
-      code_actions = false,
-    },
-    git_info = {
-      enabled = false,
-      diff_limit = 5,
-      changes_limit = 5,
-    },
-    fold_info = {
-      enabled = true,
-    },
-    cursor_surrounding = {
-      enabled = true,
-      lines_above = 4,
-      lines_below = 4,
-    },
-    quickfix_loclist = {
-      enabled = true,
-      limit = 5,
-    },
-    macros = {
-      enabled = false,
-      register = 'q',
-    },
-    terminal_buffers = {
-      enabled = true,
-    },
-    session_duration = {
-      enabled = false,
-    },
+    -- Remove duplicate configurations above - keeping only the final instances
+    -- All configurations below this point are unique and should be kept as-is
     vectorcode_snippets = {
       enabled = true,
       n = 3,
@@ -481,6 +402,11 @@ function M.normalize_keymap(legacy_config, filter_functions)
     end
   end
   return converted
+end
+
+---@return OpencodeConfig
+function M.get()
+  return M.values
 end
 
 ---@export Config

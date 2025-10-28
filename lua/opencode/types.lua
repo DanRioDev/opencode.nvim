@@ -85,10 +85,7 @@
 ---@field permission_accept_all string
 ---@field permission_deny string
 
----@class OpencodeKeymapPermission
----@field accept string
----@field accept_all string
----@field deny string
+---@class OpencodeKeymapPermission is already defined above at line 60
 
 
 ---@class OpencodeKeymap
