@@ -205,6 +205,9 @@ require('opencode').setup({
     session_picker = {
       delete_session = { '<C-d>' }, -- Delete selected session in the session picker
     },
+    session_picker = {
+      delete_session = { '<C-d>' }, -- Delete selected session in the session picker
+    },
   },
   ui = {
     position = 'right', -- 'right' (default) or 'left'. Position of the UI split
@@ -217,7 +220,7 @@ require('opencode').setup({
     window_highlight = 'Normal:OpencodeBackground,FloatBorder:OpencodeBorder', -- Highlight group for the opencode window
     icons = {
       preset = 'nerdfonts', -- 'emoji' | 'nerdfonts' | 'text'. Choose UI icon style (default: 'nerdfonts')
-      overrides = {},   -- Optional per-key overrides, see section below
+      overrides = {}, -- Optional per-key overrides, see section below
     },
     output = {
       tools = {
