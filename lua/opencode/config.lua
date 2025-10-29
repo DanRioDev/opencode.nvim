@@ -275,9 +275,13 @@ M.defaults = {
     -- Remove duplicate configurations above - keeping only the final instances
     -- All configurations below this point are unique and should be kept as-is
     vectorcode_snippets = {
-      enabled = true,
+      enabled = false,
       n = 3,
       query_strategy = 'auto', -- 'auto', 'selection', 'line', 'filename'
+      timeout = 5000, -- Timeout for async queries in milliseconds
+      batch_mode = false, -- Enable batch querying for multiple snippets
+      cache_results = true, -- Cache VectorCode results for performance
+      background_refresh = true, -- Refresh snippets in background
     },
   },
   debug = {

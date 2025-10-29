@@ -268,6 +268,17 @@ function M.setup()
   end)
   local OpencodeApiClient = require('opencode.api_client')
 
+  -- Initialize VectorCode async client for background processing
+  vim.defer_fn(function()
+    local ok, vectorcode_async = pcall(require, 'opencode.vectorcode_async')
+    if ok and vectorcode_async then
+      -- The async client initializes itself and logs availability
+      vim.notify('VectorCode async integration ready', vim.log.levels.INFO)
+    else
+      vim.notify('VectorCode async integration not available', vim.log.levels.DEBUG)
+    end
+  end, 100)
+
   -- Add this block to ensure the server is running
   if not state.opencode_server_job or not state.opencode_server_job:is_running() then
     server_job.ensure_server():and_then(function(server)

@@ -222,7 +222,7 @@ function Promise:cancel()
   self._error = {
     type = 'cancelled',
     message = 'Operation was cancelled',
-    timestamp = vim.fn.localtime(),
+    timestamp = vim.uv.now(),
   }
   self._resolved = true
   

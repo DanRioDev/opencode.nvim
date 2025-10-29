@@ -249,80 +249,164 @@ function M.load()
     end
     return
   end
-  if util.is_current_buf_a_file() then
-    local current_file = M.get_current_file()
-    local cursor_data = M.get_current_cursor_data()
 
-    M.context.current_file = current_file
-    M.context.cursor_data = cursor_data
-    M.context.linter_errors = M.check_linter_errors()
-  end
-
-  local current_selection = M.get_current_selection()
-  if current_selection then
-    local selection = M.new_selection(M.context.current_file, current_selection.text, current_selection.lines)
-    M.add_selection(selection)
-  end
-
-  -- Load lightweight context types immediately
-  M.context.marks = M.get_marks()
-  M.context.jumplist = M.get_jumplist()
-  M.context.undo_history = M.get_undo_history()
-  M.context.windows_tabs = M.get_windows_tabs()
-  M.context.session_info = M.get_session_info()
-  M.context.registers = M.get_registers()
-  M.context.command_history = M.get_command_history()
-  M.context.search_history = M.get_search_history()
-  M.context.debug_data = M.get_debug_data()
-  M.context.fold_info = M.get_fold_info()
-  M.context.cursor_surrounding = M.get_cursor_surrounding()
-  M.context.quickfix_loclist = M.get_quickfix_loclist()
-  M.context.macros = M.get_macros()
-  M.context.terminal_buffers = M.get_terminal_buffers()
-  M.context.session_duration = M.get_session_duration()
-
-  -- Setup chained autocmds for event-driven updates
-  -- M.setup_chained_autocmds()
-
-  -- Concurrency: Run independent heavy ops in parallel using multiple defers
-  -- Parallel group 1: LSP and Git (independent)
+  -- Multi-threaded approach: Run all independent operations in parallel
+  -- Phase 1: Ultra-lightweight operations (run immediately)
   vim.defer_fn(function()
-    -- Use native LSP context
-    M.get_lsp_context():and_then(function(result)
+    -- Buffer file operations (async)
+    M.get_current_file_async():and_then(function(current_file)
+      M.context.current_file = current_file
+      if current_file then
+        -- Chain dependent operations
+        M.get_cursor_data_async():and_then(function(cursor_data)
+          M.context.cursor_data = cursor_data
+        end)
+        M.get_linter_errors_async():and_then(function(linter_errors)
+          M.context.linter_errors = linter_errors
+        end)
+      end
+    end)
+
+    -- Selection (async but depends on current file)
+    M.get_current_selection_async():and_then(function(current_selection)
+      if current_selection then
+        local selection = M.new_selection(M.context.current_file, current_selection.text, current_selection.lines)
+        M.add_selection(selection)
+      end
+    end)
+
+    -- Quick operations (can run in parallel)
+    M.get_session_duration_async():and_then(function(result)
+      M.context.session_duration = result
+    end)
+
+    M.get_session_info_async():and_then(function(result)
+      M.context.session_info = result
+    end)
+
+    M.get_fold_info_async():and_then(function(result)
+      M.context.fold_info = result
+    end)
+  end, 0)
+
+  -- Phase 2: Medium-weight operations (0ms delay for max parallelism)
+  vim.defer_fn(function()
+    -- Window/Tab operations (independent)
+    M.get_windows_tabs_async():and_then(function(result)
+      M.context.windows_tabs = result
+    end)
+
+    -- Register operations (independent)
+    M.get_registers_async():and_then(function(result)
+      M.context.registers = result
+    end)
+
+    -- Macro operations (independent)
+    M.get_macros_async():and_then(function(result)
+      M.context.macros = result
+    end)
+
+    -- Command/Search history (independent)
+    M.get_command_history_async():and_then(function(result)
+      M.context.command_history = result
+    end)
+
+    M.get_search_history_async():and_then(function(result)
+      M.context.search_history = result
+    end)
+
+    -- Jump list and marks (can run in parallel)
+    local marks_promise = M.get_marks_async()
+    local jumplist_promise = M.get_jumplist_async()
+
+    marks_promise:and_then(function(result)
+      M.context.marks = result
+    end)
+
+    jumplist_promise:and_then(function(result)
+      M.context.jumplist = result
+    end)
+
+    -- Quickfix/Location list (independent)
+    M.get_quickfix_loclist_async():and_then(function(result)
+      M.context.quickfix_loclist = result
+    end)
+
+    -- Terminal buffers (independent)
+    M.get_terminal_buffers_async():and_then(function(result)
+      M.context.terminal_buffers = result
+    end)
+
+    -- Undo history (independent)
+    M.get_undo_history_async():and_then(function(result)
+      M.context.undo_history = result
+    end)
+  end, 0)
+
+  -- Phase 3: Heavy operations (distributed across multiple threads)
+  -- Thread group A: LSP and Git operations (independent heavy ops)
+  vim.defer_fn(function()
+    local lsp_promise = M.get_lsp_context()
+    local git_promise = M.get_git_info()
+
+    -- Run both in parallel
+    lsp_promise:and_then(function(result)
       M.context.lsp_context = result
     end)
 
-    M.get_git_info():and_then(function(result)
+    git_promise:and_then(function(result)
       M.context.git_info = result
     end)
   end, 0)
 
-  -- Parallel group 2: Plugin versions and recent buffers (independent)
+  -- Thread group B: File-dependent heavy operations
   vim.defer_fn(function()
+    M.get_cursor_surrounding_async():and_then(function(result)
+      M.context.cursor_surrounding = result
+      -- Chain VectorCode snippets after cursor surrounding is ready
+      if result then
+        M.get_vectorcode_snippets():and_then(function(snippets)
+          M.context.vectorcode_snippets = snippets
+        end)
+      end
+    end)
+
+    -- Debug data (independent heavy op)
+    M.get_debug_data_async():and_then(function(result)
+      M.context.debug_data = result
+    end)
+  end, 0)
+
+  -- Thread group C: Async file operations and plugins
+  vim.defer_fn(function()
+    -- Plugin versions (heavy file I/O)
     M.get_plugin_versions():and_then(function(result)
       M.context.plugin_versions = result
     end)
+
+    -- Recent buffers (heavy buffer scanning)
     M.get_recent_buffers():and_then(function(result)
       M.context.recent_buffers = result
     end)
   end, 0)
 
-  -- Vectorcode snippets (can chain from cursor_surrounding via autocmd)
+  -- Thread group D: UI-sensitive operations (with slight delays)
   vim.defer_fn(function()
-    M.get_vectorcode_snippets():and_then(function(result)
-      M.context.vectorcode_snippets = result
+    -- Highlights (defer for UI responsiveness)
+    M.get_highlights_async():and_then(function(result)
+      M.context.highlights = result
     end)
-  end, 0)
+  end, 50)
 
-  -- Highlights (defer for UI responsiveness)
+  -- Setup chained autocmds for event-driven updates
+  -- M.setup_chained_autocmds()
+
+  -- Save to cache (minimal blocking)
   vim.defer_fn(function()
-    M.context.highlights = M.get_highlights()
-  end, 100) -- Slight delay for lightweightness
-
-  -- Save to cache
-  cache.timestamp = now
-  cache.last_changedtick = current_changedtick
-  cache.data = vim.deepcopy(M.context)
+    cache.timestamp = now
+    cache.last_changedtick = current_changedtick
+    cache.data = vim.deepcopy(M.context)
+  end, 200) -- Delay cache save to avoid blocking
 end
 
 function M.setup_chained_autocmds()
@@ -594,6 +678,16 @@ function M.get_current_file()
   return result
 end
 
+-- Async version
+function M.get_current_file_async()
+  local promise = Promise.new()
+  vim.defer_fn(function()
+    local result = M.get_current_file()
+    promise:resolve(result)
+  end, 0)
+  return promise
+end
+
 function M.get_current_cursor_data()
   local cfg = get_config()
   if not (cfg.context and cfg.context.enabled and cfg.context.cursor_data and cfg.context.cursor_data.enabled) then
@@ -603,6 +697,16 @@ function M.get_current_cursor_data()
   local cursor_pos = vim.fn.getcurpos()
   local cursor_content = vim.trim(vim.api.nvim_get_current_line())
   return { line = cursor_pos[2], col = cursor_pos[3], line_content = cursor_content }
+end
+
+-- Async version
+function M.get_cursor_data_async()
+  local promise = Promise.new()
+  vim.defer_fn(function()
+    local result = M.get_current_cursor_data()
+    promise:resolve(result)
+  end, 0)
+  return promise
 end
 
 function M.get_current_selection()
@@ -642,6 +746,16 @@ function M.get_current_selection()
   }
 end
 
+-- Async version
+function M.get_current_selection_async()
+  local promise = Promise.new()
+  vim.defer_fn(function()
+    local result = M.get_current_selection()
+    promise:resolve(result)
+  end, 0)
+  return promise
+end
+
 -- Get marks (10 most recent)
 function M.get_marks()
   local cfg = get_config()
@@ -667,6 +781,16 @@ function M.get_marks()
   end
 
   return #result > 0 and result or nil
+end
+
+-- Async version
+function M.get_marks_async()
+  local promise = Promise.new()
+  vim.defer_fn(function()
+    local result = M.get_marks()
+    promise:resolve(result)
+  end, 0)
+  return promise
 end
 
 -- Get jumplist (last 10 jumps)
@@ -698,6 +822,16 @@ function M.get_jumplist()
   end
 
   return #result > 0 and { jumps = result, current = current } or nil
+end
+
+-- Async version
+function M.get_jumplist_async()
+  local promise = Promise.new()
+  vim.defer_fn(function()
+    local result = M.get_jumplist()
+    promise:resolve(result)
+  end, 0)
+  return promise
 end
 
 -- Get recent buffers - unified function supporting both legacy and new API
@@ -789,6 +923,16 @@ function M.get_windows_tabs()
   return { windows = windows, tabs = tabs, current_win = vim.api.nvim_get_current_win() }
 end
 
+-- Async version
+function M.get_windows_tabs_async()
+  local promise = Promise.new()
+  vim.defer_fn(function()
+    local result = M.get_windows_tabs()
+    promise:resolve(result)
+  end, 0)
+  return promise
+end
+
 -- Get buffer line highlights
 function M.get_highlights()
   local cfg = get_config()
@@ -834,6 +978,16 @@ function M.get_highlights()
   local final_result = #result > 0 and result or nil
   context_cache.set(cache_key, final_result)
   return final_result
+end
+
+-- Async version
+function M.get_highlights_async()
+  local promise = Promise.new()
+  vim.defer_fn(function()
+    local result = M.get_highlights()
+    promise:resolve(result)
+  end, 0)
+  return promise
 end
 
 -- Get session information
@@ -1431,7 +1585,7 @@ function M.get_session_duration()
   }
 end
 
--- Get VectorCode snippets (async)
+-- Get VectorCode snippets using async client (runs in separate thread)
 ---@param callback function(result: table|nil)
 function M.get_vectorcode_snippets(callback)
   local cfg = get_config()
@@ -1450,16 +1604,6 @@ function M.get_vectorcode_snippets(callback)
   end
 
   local promise = Promise.new()
-
-  -- Check if VectorCode is available
-  local ok, vectorcode = pcall(require, 'vectorcode')
-  if not ok then
-    promise:resolve(nil)
-    if callback then
-      callback(nil)
-    end
-    return promise
-  end
 
   -- Get current file and cursor data for better query
   local current_file = M.get_current_file()
@@ -1524,6 +1668,7 @@ function M.get_vectorcode_snippets(callback)
 
   local query = table.concat(query_parts, ' ')
   local n = cfg.context.vectorcode_snippets.n or 3
+  local timeout = cfg.context.vectorcode_snippets.timeout or 5000
 
   -- Ensure query is not empty and not too long
   if query == '' or #query > 500 then
@@ -1534,10 +1679,10 @@ function M.get_vectorcode_snippets(callback)
     return promise
   end
 
-  -- Query VectorCode asynchronously
+  -- Import and use the async VectorCode client
   vim.defer_fn(function()
-    local ok_query, results = pcall(vectorcode.query, query, { n = n })
-    if not ok_query or not results then
+    local ok, vectorcode_async = pcall(require, 'opencode.vectorcode_async')
+    if not ok or not vectorcode_async then
       promise:resolve(nil)
       if callback then
         callback(nil)
@@ -1545,20 +1690,51 @@ function M.get_vectorcode_snippets(callback)
       return
     end
 
-    -- Format results
-    local snippets = {}
-    for _, result in ipairs(results) do
-      table.insert(snippets, {
-        path = result.path,
-        content = result.document,
-      })
+    -- Check if VectorCode is available through the async client
+    if not vectorcode_async:is_available() then
+      promise:resolve(nil)
+      if callback then
+        callback(nil)
+      end
+      return
     end
 
-    promise:resolve(#snippets > 0 and snippets or nil)
-    if callback then
-      callback(#snippets > 0 and snippets or nil)
-    end
+    -- Query using the async client (runs in separate thread context)
+    vectorcode_async:query(query, { n = n, timeout = timeout })
+      :and_then(function(results)
+        if not results then
+          promise:resolve(nil)
+          if callback then
+            callback(nil)
+          end
+          return
+        end
+
+        -- Format results for OpenCode context
+        local snippets = {}
+        for _, result in ipairs(results) do
+          table.insert(snippets, {
+            path = result.path,
+            content = result.content,
+            score = result.score,
+            metadata = result.metadata,
+          })
+        end
+
+        promise:resolve(#snippets > 0 and snippets or nil)
+        if callback then
+          callback(#snippets > 0 and snippets or nil)
+        end
+      end)
+      :catch(function(err)
+        vim.notify('VectorCode async query failed: ' .. tostring(err), vim.log.levels.ERROR)
+        promise:resolve(nil)
+        if callback then
+          callback(nil)
+        end
+      end)
   end, 0)
+
   return promise
 end
 
@@ -2190,5 +2366,123 @@ end
 
 -- Initialize cache invalidation
 setup_cache_invalidation()
+
+-- Additional async function implementations
+function M.get_linter_errors_async()
+  local promise = Promise.new()
+  vim.defer_fn(function()
+    local result = M.check_linter_errors()
+    promise:resolve(result)
+  end, 0)
+  return promise
+end
+
+function M.get_session_duration_async()
+  local promise = Promise.new()
+  vim.defer_fn(function()
+    local result = M.get_session_duration()
+    promise:resolve(result)
+  end, 0)
+  return promise
+end
+
+function M.get_session_info_async()
+  local promise = Promise.new()
+  vim.defer_fn(function()
+    local result = M.get_session_info()
+    promise:resolve(result)
+  end, 0)
+  return promise
+end
+
+function M.get_fold_info_async()
+  local promise = Promise.new()
+  vim.defer_fn(function()
+    local result = M.get_fold_info()
+    promise:resolve(result)
+  end, 0)
+  return promise
+end
+
+function M.get_registers_async()
+  local promise = Promise.new()
+  vim.defer_fn(function()
+    local result = M.get_registers()
+    promise:resolve(result)
+  end, 0)
+  return promise
+end
+
+function M.get_macros_async()
+  local promise = Promise.new()
+  vim.defer_fn(function()
+    local result = M.get_macros()
+    promise:resolve(result)
+  end, 0)
+  return promise
+end
+
+function M.get_command_history_async()
+  local promise = Promise.new()
+  vim.defer_fn(function()
+    local result = M.get_command_history()
+    promise:resolve(result)
+  end, 0)
+  return promise
+end
+
+function M.get_search_history_async()
+  local promise = Promise.new()
+  vim.defer_fn(function()
+    local result = M.get_search_history()
+    promise:resolve(result)
+  end, 0)
+  return promise
+end
+
+function M.get_undo_history_async()
+  local promise = Promise.new()
+  vim.defer_fn(function()
+    local result = M.get_undo_history()
+    promise:resolve(result)
+  end, 0)
+  return promise
+end
+
+function M.get_cursor_surrounding_async()
+  local promise = Promise.new()
+  vim.defer_fn(function()
+    local result = M.get_cursor_surrounding()
+    promise:resolve(result)
+  end, 0)
+  return promise
+end
+
+function M.get_debug_data_async()
+  local promise = Promise.new()
+  vim.defer_fn(function()
+    local result = M.get_debug_data()
+    promise:resolve(result)
+  end, 0)
+  return promise
+end
+
+function M.get_quickfix_loclist_async()
+  local promise = Promise.new()
+  vim.defer_fn(function()
+    local result = M.get_quickfix_loclist()
+    promise:resolve(result)
+  end, 0)
+  return promise
+end
+
+function M.get_terminal_buffers_async()
+  local promise = Promise.new()
+  vim.defer_fn(function()
+    local result = M.get_terminal_buffers()
+    promise:resolve(result)
+  end, 0)
+  return promise
+end
 
 return M
