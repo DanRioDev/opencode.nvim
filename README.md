@@ -90,6 +90,8 @@ Install the plugin with your favorite package manager. See the [Configuration](#
 
 ## ⚙️ Configuration
 
+> **Note**: The keymap configuration structure has been updated. Old keymaps (`keymap.global` and `keymap.window`) will be mapped to the new format (`keymap.editor`, `keymap.input_window`, `keymap.output_window`) but you should update your config to the new format. See [Keymap Configuration](#keymap-configuration) below for details.
+
 ```lua
 -- Default configuration with all available options
 require('opencode').setup({
@@ -97,54 +99,63 @@ require('opencode').setup({
   preferred_completion = nil, -- 'blink', 'nvim-cmp','vim_complete' if nil, it will use the best available completion
   default_global_keymaps = true, -- If false, disables all default global keymaps
   default_mode = 'build', -- 'build' or 'plan' or any custom configured. @see [OpenCode Agents](https://opencode.ai/docs/modes/)
+  keymap_prefix = '<leader>o', -- Default keymap prefix for global keymaps change to your preferred prefix and it will be applied to all keymaps starting with <leader>o
   keymap = {
-    global = {
-      toggle = '<leader>og', -- Open opencode. Close if opened
-      open_input = '<leader>oi', -- Opens and focuses on input window on insert mode
-      open_input_new_session = '<leader>oI', -- Opens and focuses on input window on insert mode. Creates a new session
-      open_output = '<leader>oo', -- Opens and focuses on output window
-      toggle_focus = '<leader>ot', -- Toggle focus between opencode and last window
-      close = '<leader>oq', -- Close UI windows
-      select_session = '<leader>os', -- Select and load a opencode session
-      configure_provider = '<leader>op', -- Quick provider and model switch from predefined list
-      diff_open = '<leader>od', -- Opens a diff tab of a modified file since the last opencode prompt
-      diff_next = '<leader>o]', -- Navigate to next file diff
-      diff_prev = '<leader>o[', -- Navigate to previous file diff
-      diff_close = '<leader>oc', -- Close diff view tab and return to normal editing
-      diff_revert_all_last_prompt = '<leader>ora', -- Revert all file changes since the last opencode prompt
-      diff_revert_this_last_prompt = '<leader>ort', -- Revert current file changes since the last opencode prompt
-      diff_revert_all = '<leader>orA', -- Revert all file changes since the last opencode session
-      diff_revert_this = '<leader>orT', -- Revert current file changes since the last opencode session
-      diff_restore_snapshot_file = '<leader>orr', -- Restore file to snapshot
-      diff_restore_snapshot_all = '<leader>orR', -- Restore all files to snapshot
-      open_configuration_file = '<leader>oC', -- Open opencode configuration file
-      swap_position = '<leader>ox', -- Swap Opencode pane left/right
-      permission_accept = '<leader>opa',  -- Accept permission request once
-      permission_accept_all = '<leader>opA', -- Accept all (for current tool)
-      permission_deny = '<leader>opd',-- Accept permission request once
+    editor = {
+      ['<leader>og'] = { 'toggle' }, -- Open opencode. Close if opened
+      ['<leader>oi'] = { 'open_input' }, -- Opens and focuses on input window on insert mode
+      ['<leader>oI'] = { 'open_input_new_session' }, -- Opens and focuses on input window on insert mode. Creates a new session
+      ['<leader>oo'] = { 'open_output' }, -- Opens and focuses on output window
+      ['<leader>ot'] = { 'toggle_focus' }, -- Toggle focus between opencode and last window
+      ['<leader>oq'] = { 'close' }, -- Close UI windows
+      ['<leader>os'] = { 'select_session' }, -- Select and load a opencode session
+      ['<leader>op'] = { 'configure_provider' }, -- Quick provider and model switch from predefined list
+      ['<leader>od'] = { 'diff_open' }, -- Opens a diff tab of a modified file since the last opencode prompt
+      ['<leader>o]'] = { 'diff_next' }, -- Navigate to next file diff
+      ['<leader>o['] = { 'diff_prev' }, -- Navigate to previous file diff
+      ['<leader>oc'] = { 'diff_close' }, -- Close diff view tab and return to normal editing
+      ['<leader>ora'] = { 'diff_revert_all_last_prompt' }, -- Revert all file changes since the last opencode prompt
+      ['<leader>ort'] = { 'diff_revert_this_last_prompt' }, -- Revert current file changes since the last opencode prompt
+      ['<leader>orA'] = { 'diff_revert_all' }, -- Revert all file changes since the last opencode session
+      ['<leader>orT'] = { 'diff_revert_this' }, -- Revert current file changes since the last opencode session
+      ['<leader>orr'] = { 'diff_restore_snapshot_file' }, -- Restore a file to a restore point
+      ['<leader>orR'] = { 'diff_restore_snapshot_all' }, -- Restore all files to a restore point
+      ['<leader>ox'] = { 'swap_position' }, -- Swap Opencode pane left/right
+      ['<leader>opa'] = { 'permission_accept' }, -- Accept permission request once
+      ['<leader>opA'] = { 'permission_accept_all' }, -- Accept all (for current tool)
+      ['<leader>opd'] = { 'permission_deny' }, -- Deny permission request once
     },
-    window = {
-      submit = '<cr>', -- Submit prompt (normal mode)
-      submit_insert = '<cr>', -- Submit prompt (insert mode)
-      close = '<esc>', -- Close UI windows
-      stop = '<C-c>', -- Stop opencode while it is running
-      next_message = ']]', -- Navigate to next message in the conversation
-      prev_message = '[[', -- Navigate to previous message in the conversation
-      mention = '@', -- Insert mention (file/agent)
-      mention_file = '~', -- Pick a file and add to context. See File Mentions section
-      slash_commands = '/', -- Pick a command to run in the input window
-      toggle_pane = '<tab>', -- Toggle between input and output panes
-      prev_prompt_history = '<up>', -- Navigate to previous prompt in history
-      next_prompt_history = '<down>', -- Navigate to next prompt in history
-      switch_mode = '<M-m>', -- Switch between modes (build/plan)
-      focus_input = '<C-i>', -- Focus on input window and enter insert mode at the end of the input from the output window
-      select_child_session = '<leader>oS', -- Select and load a child session
-      debug_message = '<leader>oD', -- Open raw message in new buffer for debugging
-      debug_output = '<leader>oO', -- Open raw output in new buffer for debugging
-      permission_accept = 'a',  -- Accept permission request once (only available when there is a pending permission request)
-      permission_accept_all = 'A', -- Accept all (for current tool) permission request once (only available when there is a pending permission request)
-      permission_deny = 'd',-- Accept permission request once (only available when there is a pending permission request)
-      debug_session = '<leader>ods', -- Debug session info
+    input_window = {
+      ['<cr>'] = { 'submit_input_prompt', mode = { 'n', 'i' } }, -- Submit prompt (normal mode and insert mode)
+      ['<esc>'] = { 'close' }, -- Close UI windows
+      ['<C-c>'] = { 'stop' }, -- Stop opencode while it is running
+      ['~'] = { 'mention_file', mode = 'i' }, -- Pick a file and add to context. See File Mentions section
+      ['@'] = { 'mention', mode = 'i' }, -- Insert mention (file/agent)
+      ['/'] = { 'slash_commands', mode = 'i' }, -- Pick a command to run in the input window
+      ['<tab>'] = { 'toggle_pane', mode = { 'n', 'i' } }, -- Toggle between input and output panes
+      ['<up>'] = { 'prev_prompt_history', mode = { 'n', 'i' } }, -- Navigate to previous prompt in history
+      ['<down>'] = { 'next_prompt_history', mode = { 'n', 'i' } }, -- Navigate to next prompt in history
+      ['<M-m>'] = { 'switch_mode' }, -- Switch between modes (build/plan)
+    },
+    output_window = {
+      ['<esc>'] = { 'close' }, -- Close UI windows
+      ['<C-c>'] = { 'stop' }, -- Stop opencode while it is running
+      [']]'] = { 'next_message' }, -- Navigate to next message in the conversation
+      ['[['] = { 'prev_message' }, -- Navigate to previous message in the conversation
+      ['<tab>'] = { 'toggle_pane', mode = { 'n', 'i' } }, -- Toggle between input and output panes
+      ['i'] = { 'focus_input', 'n' }, -- Focus on input window and enter insert mode at the end of the input from the output window
+      ['<leader>oS'] = { 'select_child_session' }, -- Select and load a child session
+      ['<leader>oD'] = { 'debug_message' }, -- Open raw message in new buffer for debugging
+      ['<leader>oO'] = { 'debug_output' }, -- Open raw output in new buffer for debugging
+      ['<leader>ods'] = { 'debug_session' }, -- Open raw session in new buffer for debugging
+    },
+    permission = {
+      accept = 'a', -- Accept permission request once (only available when there is a pending permission request)
+      accept_all = 'A', -- Accept all (for current tool) permission request once (only available when there is a pending permission request)
+      deny = 'd', -- Deny permission request once (only available when there is a pending permission request)
+    },
+    session_picker = {
+      delete_session = { '<C-d>' }, -- Delete selected session in the session picker
     },
   },
   ui = {
@@ -157,12 +168,16 @@ require('opencode').setup({
     display_cost = true, -- Display cost in the footer
     window_highlight = 'Normal:OpencodeBackground,FloatBorder:OpencodeBorder', -- Highlight group for the opencode window
     icons = {
-      preset = 'nerdfonts', -- 'emoji' | 'nerdfonts' | 'text'. Choose UI icon style (default: 'nerdfonts')
-      overrides = {},   -- Optional per-key overrides, see section below
+      preset = 'nerdfonts', -- 'nerdfonts' | 'text'. Choose UI icon style (default: 'nerdfonts')
+      overrides = {}, -- Optional per-key overrides, see section below
     },
     output = {
       tools = {
         show_output = true, -- Show tools output [diffs, cmd output, etc.] (default: true)
+      },
+      rendering = {
+        markdown_debounce_ms = 250, -- Debounce time for markdown rendering on new data (default: 250ms)
+        on_data_rendered = nil, -- Called when new data is rendered; set to false to disable default RenderMarkdown/Markview behavior
       },
     },
     input = {
@@ -174,7 +189,7 @@ require('opencode').setup({
       file_sources = {
         cache_timeout = 300, -- seconds
         enabled = true,
-        preferred_cli_tool = 'fd', -- 'fd','fdfind','rg','git' if nil, it will use the best available tool
+        preferred_cli_tool = 'server', -- 'fd','fdfind','rg','git','server' if nil, it will use the best available tool, 'server' uses opencode cli to get file list (works cross platform) and supports folders
         ignore_patterns = {
           '^%.git/',
           '^%.svn/',
@@ -309,9 +324,28 @@ require('opencode').setup({
   debug = {
     enabled = false, -- Enable debug messages in the output window
   },
+  prompt_guard = nil, -- Optional function that returns boolean to control when prompts can be sent (see Prompt Guard section)
 })
 
 ```
+
+### Keymap Configuration
+
+The keymap configuration has been restructured for better organization and clarity:
+
+- **`editor`**: Global keymaps that are available throughout Neovim
+- **`input_window`**: Keymaps specific to the input window
+- **`output_window`**: Keymaps specific to the output window
+- **`permission`**: Special keymaps for responding to permission requests (available in input/output windows when there's a pending permission)
+
+**Backward Compatibility**: The plugin automatically maps configurations that use `keymap.global` and `keymap.window` to the new structure. A deprecation warning will be shown during migration. Update your configuration to use the new structure to remove the warning.
+
+Each keymap entry is a table consising of:
+
+- The string name of an api function = `{ 'toggle' }`
+- Or a custom function: `{ function() ... end }`
+- An optional mode: `{ 'toggle', mode = { 'n', 'i' } }`
+- An optional desc: `{'toggle', desc = 'Toggle Opencode' }`
 
 ### UI icons (disable emojis or customize)
 
@@ -630,8 +664,33 @@ The plugin defines several highlight groups that can be customized to match your
 - `OpencodeAgentBuild`: Agent indicator in winbar for Build mode (default: #616161 background)
 - `OpencodeAgentCustom`: Agent indicator in winbar for custom modes (default: #3b4261 background)
 - `OpencodeContestualAction`: Highlight for contextual actions in the output window (default: #3b4261 background)
-- `OpencodeInpuutLegend`: Highlight for input window legend (default: #CCCCCC background)
+- `OpencodeInputLegend`: Highlight for input window legend (default: #CCCCCC background)
 - `OpencodeHint`: Highlight for hinting messages in input window and token info in output window footer (linked to `Comment`)
+
+## 🛡️ Prompt Guard
+
+The `prompt_guard` configuration option allows you to control when prompts can be sent to Opencode. This is useful for preventing accidental or unauthorized AI interactions in certain contexts.
+
+### Configuration
+
+Set `prompt_guard` to a function that returns a boolean:
+
+```lua
+require('opencode').setup({
+  prompt_guard = function()
+    -- Your custom logic here
+    -- Return true to allow, false to deny
+    return true
+  end,
+})
+```
+
+### Behavior
+
+- **Before sending prompts**: The guard is checked before any prompt is sent to the AI. If denied, an ERROR notification is shown and the prompt is not sent.
+- **Before opening UI**: The guard is checked when opening the Opencode buffer for the first time. If denied, a WARN notification is shown and the UI is not opened.
+- **No parameters**: The guard function receives no parameters. Access vim state directly (e.g., `vim.fn.getcwd()`, `vim.bo.filetype`).
+- **Error handling**: If the guard function throws an error or returns a non-boolean value, the prompt is denied with an appropriate error message.
 
 ## 🔧 Setting up Opencode
 

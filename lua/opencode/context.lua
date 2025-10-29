@@ -1,7 +1,7 @@
 -- Gathers editor context
 
 local util = require('opencode.util')
-local config = require('opencode.config').get()
+local config = require('opencode.config')
 local state = require('opencode.state')
 local context_cache = require('opencode.context_cache')
 
@@ -249,11 +249,16 @@ function M.add_selection(selection)
 end
 
 function M.add_file(file)
+  --- TODO: probably need a way to remove a file once it's been added?
+  --- maybe a keymap like clear all context?
+
   if not M.context.mentioned_files then
     M.context.mentioned_files = {}
   end
 
-  if vim.fn.filereadable(file) ~= 1 then
+  local is_file = vim.fn.filereadable(file) == 1
+  local is_dir = vim.fn.isdirectory(file) == 1
+  if not is_file and not is_dir then
     vim.notify('File not added to context. Could not read.')
     return
   end
@@ -265,6 +270,11 @@ function M.add_file(file)
   end
 end
 
+M.clear_files = function()
+  M.context.mentioned_files = nil
+  M.context.mentioned_files_content = nil
+end
+
 function M.add_subagent(subagent)
   if not M.context.mentioned_subagents then
     M.context.mentioned_subagents = {}
@@ -273,6 +283,10 @@ function M.add_subagent(subagent)
   if not vim.tbl_contains(M.context.mentioned_subagents, subagent) then
     table.insert(M.context.mentioned_subagents, subagent)
   end
+end
+
+M.clear_subagents = function()
+  M.context.mentioned_subagents = nil
 end
 
 ---@param opts OpencodeContextConfig
@@ -1229,7 +1243,7 @@ local function format_file_part(path, prompt)
     file_part.source = {
       path = path,
       type = 'file',
-      text = { start = pos, value = mention, ['end'] = pos + #mention - 1 },
+      text = { start = pos, value = mention, ['end'] = pos + #mention },
     }
   end
   return file_part
@@ -1310,7 +1324,14 @@ function M.format_message(prompt, opts)
   end
 
   for _, path in ipairs(context.mentioned_files or {}) do
-    table.insert(parts, format_file_part(path, prompt))
+    -- don't resend current file if it's also mentioned
+    if not context.current_file or path ~= context.current_file.path then
+      table.insert(parts, format_file_part(path, prompt))
+    end
+  end
+
+  for _, sel in ipairs(context.selections or {}) do
+    table.insert(parts, format_selection_part(sel))
   end
 
   for _, agent in ipairs(context.mentioned_subagents or {}) do
@@ -1319,10 +1340,6 @@ function M.format_message(prompt, opts)
 
   if context.current_file then
     table.insert(parts, format_file_part(context.current_file.path))
-  end
-
-  for _, sel in ipairs(context.selections or {}) do
-    table.insert(parts, format_selection_part(sel))
   end
 
   if context.linter_errors then
@@ -1417,10 +1434,10 @@ function M.format_message(prompt, opts)
   return parts
 end
 
----@param part OpencodeMessagePart
+---@param text string
 ---@param context_type string|nil
-local function decode_json_context(part, context_type)
-  local ok, result = pcall(vim.json.decode, part.text)
+function M.decode_json_context(text, context_type)
+  local ok, result = pcall(vim.json.decode, text)
   if not ok or (context_type and result.context_type ~= context_type) then
     return nil
   end
@@ -1438,7 +1455,7 @@ function M.extract_from_opencode_message(message)
       ctx.prompt = ctx.prompt or part.text or ''
     end,
     text_context = function(part)
-      local json = decode_json_context(part, 'selection')
+      local json = M.decode_json_context(part.text, 'selection')
       ctx.selected_text = json and json.content or ctx.selected_text
     end,
     file = function(part)

@@ -1,8 +1,10 @@
+local config = require('opencode.config')
+
 local M = {}
 
 local mentions_namespace = vim.api.nvim_create_namespace('OpencodeMentions')
 
-function M.highlight_all_mentions(buf)
+function M.highlight_all_mentions(buf, callback)
   -- Pattern for mentions
   local mention_pattern = '@[%w_%-%./][%w_%-%./]*'
 
@@ -24,6 +26,10 @@ function M.highlight_all_mentions(buf)
         break
       end
 
+      if callback then
+        callback(line:sub(mention_start + 1, mention_end), row, mention_start, mention_end)
+      end
+
       -- Add extmark for this mention
       vim.api.nvim_buf_set_extmark(buf, mentions_namespace, row - 1, mention_start - 1, {
         end_col = mention_end,
@@ -36,6 +42,55 @@ function M.highlight_all_mentions(buf)
   end
 end
 
+---Apply mention highlights from source.text data
+---@param output Output Output object to write to
+---@param text string The full text content
+---@param mentions OpencodeMessagePartSourceText[] Mention data with character offsets
+---@param start_line number The starting line index in the output (1-indexed)
+function M.highlight_mentions_in_output(output, text, mentions, start_line)
+  for _, mention in ipairs(mentions) do
+    local char_start = mention.start
+    local char_end = mention['end']
+
+    local char_count = 0
+
+    for i, line in ipairs(vim.split(text, '\n')) do
+      local line_start = char_count
+      local line_end = char_count + #line
+
+      if char_start == 0 and string.sub(text, 0, 1) ~= '@' then
+        -- Work around Opencode bug? where mentions sometimes have a 0 start
+
+        local start_pos, end_pos = string.find(line, mention.value, 1, true)
+
+        if start_pos then
+          output:add_extmark(start_line + i - 1, {
+            start_col = start_pos - 1,
+            end_col = end_pos,
+            hl_group = 'OpencodeMention',
+            priority = 1000,
+          })
+          break
+        end
+      else
+        if char_start >= line_start and char_start < line_end then
+          local col_start = char_start - line_start
+          local col_end = math.min(char_end - line_start + 1, #line)
+
+          output:add_extmark(start_line + i - 1, {
+            start_col = col_start,
+            end_col = col_end,
+            hl_group = 'OpencodeMention',
+            priority = 1000,
+          })
+          break
+        end
+
+        char_count = line_end + 1
+      end
+    end
+  end
+end
 local function insert_mention(windows, row, col, name)
   local current_line = vim.api.nvim_buf_get_lines(windows.input_buf, row - 1, row, false)[1]
 
@@ -63,6 +118,27 @@ function M.mention(get_name)
       local row, col = cursor_pos[1], cursor_pos[2]
       insert_mention(windows, row, col, name)
     end)
+  end)
+end
+
+function M.restore_mentions(buf)
+  local context = require('opencode.context')
+
+  context.clear_subagents()
+  context.clear_files()
+
+  M.highlight_all_mentions(buf, function(name)
+    local agents = require('opencode.config_file').get_subagents()
+
+    if vim.tbl_contains(agents, name) then
+      require('opencode.context').add_subagent(name)
+      return
+    end
+
+    if vim.fn.filereadable(name) == 1 then
+      require('opencode.context').add_file(name)
+      return
+    end
   end)
 end
 

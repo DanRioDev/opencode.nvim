@@ -133,10 +133,23 @@ function M.ansi_reset()
   return '\27[0m'
 end
 
--- Remove ANSI escape sequences
---- @param str string: Input string containing ANSI escape codes
+---Remove ANSI escape sequences
+---@param str string: Input string containing ANSI escape codes
+---@return string stripped_str
 function M.strip_ansi(str)
-  return str:gsub('\27%[[%d;]*m', '')
+  return (str:gsub('\27%[[%d;]*m', ''))
+end
+
+---Strip ANSI escape sequences from all lines
+---@param lines table
+---@return table stripped_lines
+function M.strip_ansi_lines(lines)
+  local stripped_lines = {}
+  for _, line in pairs(lines) do
+    table.insert(stripped_lines, M.strip_ansi(line))
+  end
+
+  return stripped_lines
 end
 
 --- Convert a datetime to a human-readable "time ago" format
@@ -345,6 +358,34 @@ function M.parse_dot_args(args_str)
     end
   end
   return result
+end
+
+--- Check if prompt is allowed via guard callback
+--- @param guard_callback? function
+--- @param mentioned_files? string[] List of mentioned files in the context
+--- @return boolean allowed
+--- @return string|nil error_message
+function M.check_prompt_allowed(guard_callback, mentioned_files)
+  if not guard_callback then
+    return true, nil -- No guard = always allowed
+  end
+
+  if not type(guard_callback) == 'function' then
+    return false, 'prompt_guard must be a function'
+  end
+
+  mentioned_files = mentioned_files or {}
+  local success, result = pcall(guard_callback, mentioned_files)
+
+  if not success then
+    return false, 'prompt_guard error: ' .. tostring(result)
+  end
+
+  if type(result) ~= 'boolean' then
+    return false, 'prompt_guard must return a boolean'
+  end
+
+  return result, nil
 end
 
 return M

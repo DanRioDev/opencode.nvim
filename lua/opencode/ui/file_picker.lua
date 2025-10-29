@@ -1,27 +1,5 @@
 local M = {}
-
-local function get_best_picker()
-  local config = require('opencode.config')
-
-  local preferred_picker = config.get('preferred_picker')
-  if preferred_picker and preferred_picker ~= '' then
-    return preferred_picker
-  end
-
-  if pcall(require, 'telescope') then
-    return 'telescope'
-  end
-  if pcall(require, 'fzf-lua') then
-    return 'fzf'
-  end
-  if pcall(require, 'mini.pick') then
-    return 'mini.pick'
-  end
-  if pcall(require, 'snacks') then
-    return 'snacks'
-  end
-  return nil
-end
+local picker = require('opencode.ui.picker')
 
 local function format_file(path)
   -- when path is something like: file.extension dir1/dir2 -> format to dir1/dir2/file.extension
@@ -123,10 +101,17 @@ end
 local function snacks_picker_ui(callback, path)
   local Snacks = require('snacks')
 
+  local origin_win = vim.api.nvim_get_current_win()
+  local origin_mode = vim.fn.mode()
+  local origin_pos = vim.api.nvim_win_get_cursor(origin_win)
+
+  local confirmed = false
+
   local opts = {
-    confirm = function(picker)
-      local items = picker:selected({ fallback = true })
-      picker:close()
+    confirm = function(picker_obj)
+      local items = picker_obj:selected({ fallback = true })
+      confirmed = true
+      picker_obj:close()
 
       if items and callback then
         for _, it in ipairs(items) do
@@ -135,6 +120,20 @@ local function snacks_picker_ui(callback, path)
           end
         end
       end
+    end,
+    on_close = function(obj)
+      vim.notify(vim.inspect(obj))
+      -- snacks doesn't seem to restore window / mode / cursor position when you
+      -- cancel the picker. if we pick a file, we're already handling that case elsewhere
+      if confirmed or not vim.api.nvim_win_is_valid(origin_win) then
+        return
+      end
+
+      vim.api.nvim_set_current_win(origin_win)
+      if origin_mode:match('i') then
+        vim.cmd('startinsert')
+      end
+      vim.api.nvim_win_set_cursor(origin_win, origin_pos)
     end,
   }
 
@@ -146,9 +145,9 @@ local function snacks_picker_ui(callback, path)
 end
 
 function M.pick(callback, path)
-  local picker = get_best_picker()
+  local picker_type = picker.get_best_picker()
 
-  if not picker then
+  if not picker_type then
     return
   end
 
@@ -158,13 +157,13 @@ function M.pick(callback, path)
   end
 
   vim.schedule(function()
-    if picker == 'telescope' then
+    if picker_type == 'telescope' then
       telescope_ui(wrapped_callback, path)
-    elseif picker == 'fzf' then
+    elseif picker_type == 'fzf' then
       fzf_ui(wrapped_callback, path)
-    elseif picker == 'mini.pick' then
+    elseif picker_type == 'mini.pick' then
       mini_pick_ui(wrapped_callback, path)
-    elseif picker == 'snacks' then
+    elseif picker_type == 'snacks' then
       snacks_picker_ui(wrapped_callback, path)
     else
       callback(nil)

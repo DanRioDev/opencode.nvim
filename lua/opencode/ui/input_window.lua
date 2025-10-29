@@ -1,5 +1,5 @@
 local state = require('opencode.state')
-local config = require('opencode.config').get()
+local config = require('opencode.config')
 local M = {}
 
 function M.create_buf()
@@ -62,7 +62,8 @@ function M.handle_submit()
     return
   end
 
-  if input_content:match('^/') then
+  local key = config.get_key_for_function('input_window', 'slash_commands') or '/'
+  if input_content:match('^' .. key) then
     M._execute_slash_command(input_content)
     return
   end
@@ -71,16 +72,21 @@ function M.handle_submit()
 end
 
 M._execute_slash_command = function(command)
-  local slash_commands = require('opencode.config_file').get_user_commands()
+  local slash_commands = require('opencode.api').get_slash_commands()
+  local key = config.get_key_for_function('input_window', 'slash_commands') or '/'
+
   local cmd = command:sub(2):match('^%s*(.-)%s*$')
   if cmd == '' then
     return
   end
   local parts = vim.split(cmd, ' ')
-  local command_cfg = slash_commands[parts[1]]
+
+  local command_cfg = vim.tbl_filter(function(c)
+    return c.slash_cmd == key .. parts[1]
+  end, slash_commands)[1]
 
   if command_cfg then
-    require('opencode.api').run_user_command(parts[1], vim.list_slice(parts, 2))
+    command_cfg.fn(vim.list_slice(parts, 2))
   else
     vim.notify('Unknown command: ' .. cmd, vim.log.levels.WARN)
   end
@@ -131,15 +137,18 @@ function M.refresh_placeholder(windows, input_lines)
     local ns_id = vim.api.nvim_create_namespace('input_placeholder')
     local win_width = vim.api.nvim_win_get_width(windows.input_win)
     local padding = string.rep(' ', win_width)
-    local keys = config.keymap.window
+    local slash_key = config.get_key_for_function('input_window', 'slash_commands')
+    local mention_key = config.get_key_for_function('input_window', 'mention')
+    local mention_file_key = config.get_key_for_function('input_window', 'mention_file')
+
     vim.api.nvim_buf_set_extmark(windows.input_buf, ns_id, 0, 0, {
       virt_text = {
         { 'Type your prompt here... ', 'OpenCodeHint' },
-        { keys.slash_commands, 'OpencodeInputLegend' },
+        { slash_key or '/', 'OpencodeInputLegend' },
         { ' commands ', 'OpenCodeHint' },
-        { keys.mention, 'OpencodeInputLegend' },
+        { mention_key or '@', 'OpencodeInputLegend' },
         { ' mentions ', 'OpenCodeHint' },
-        { keys.mention_file, 'OpencodeInputLegend' },
+        { mention_file_key or '~', 'OpencodeInputLegend' },
         { ' to pick files' .. padding, 'OpenCodeHint' },
       },
 
@@ -158,7 +167,7 @@ function M.clear_placeholder(windows)
 end
 
 function M.recover_input(windows)
-  M.set_content(state.input_content)
+  M.set_content(state.input_content, windows)
   require('opencode.ui.mention').highlight_all_mentions(windows.input_buf)
 end
 
@@ -195,41 +204,8 @@ function M.is_empty()
 end
 
 function M.setup_keymaps(windows)
-  local map = require('opencode.keymap').buf_keymap
-  local nav_history = require('opencode.ui.util').navigate_history
-  local nav = require('opencode.ui.navigation')
-  local core = require('opencode.core')
-  local api = require('opencode.api')
-  local completion = require('opencode.ui.completion')
-  local keymaps = config.keymap.window
-  local input_buf = windows.input_buf
-
-  map(keymaps.submit, M.handle_submit, input_buf, 'n')
-  map(keymaps.submit_insert, M.handle_submit, input_buf, 'i')
-
-  map(keymaps.mention, completion.trigger_completion(keymaps.mention), input_buf, 'i')
-  map(keymaps.slash_commands, completion.trigger_completion(keymaps.slash_commands), input_buf, 'i')
-  map(keymaps.mention_file, core.add_file_to_context, input_buf, 'i')
-
-  map(keymaps.prev_prompt_history, nav_history(keymaps.prev_prompt_history, 'prev'), input_buf, { 'n', 'i' })
-  map(keymaps.next_prompt_history, nav_history(keymaps.next_prompt_history, 'next'), input_buf, { 'n', 'i' })
-
-  map(keymaps.switch_mode, api.switch_to_next_mode, input_buf, { 'n', 'i' })
-
-  map(keymaps.next_message, nav.goto_next_message, input_buf, 'n')
-  map(keymaps.prev_message, nav.goto_prev_message, input_buf, 'n')
-
-  map(keymaps.close, api.close, input_buf, 'n')
-  map(keymaps.stop, api.stop, input_buf, 'n')
-  map(keymaps.toggle_pane, api.toggle_pane, input_buf, { 'n', 'i' })
-
-  map(keymaps.select_child_session, api.select_child_session, input_buf, 'n')
-
-  if config.debug.enabled then
-    local debug_helper = require('opencode.ui.debug_helper')
-    map(keymaps.debug_output, debug_helper.debug_output, input_buf, 'n')
-    map(keymaps.debug_session, debug_helper.debug_session, input_buf, 'n')
-  end
+  local keymap = require('opencode.keymap')
+  keymap.setup_window_keymaps(config.keymap.input_window, windows.input_buf)
 end
 
 function M.setup_autocmds(windows, group)
